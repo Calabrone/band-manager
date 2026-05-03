@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const client = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.BASE_URL + 'api',
 })
 
 client.interceptors.request.use((config) => {
@@ -18,7 +18,7 @@ client.interceptors.response.use(
     if (err.response?.status === 401) {
       localStorage.removeItem('band_token')
       localStorage.removeItem('band_user')
-      window.location.href = '/band/login'
+      window.location.href = import.meta.env.BASE_URL + 'login'
     }
     return Promise.reject(err)
   }
