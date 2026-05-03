@@ -1,0 +1,14 @@
+[Unit]
+Description=Band Manager Backend
+After=network.target
+
+[Service]
+User=szz
+WorkingDirectory=/home/szz/Documents/progetti/band/backend
+ExecStart=/home/szz/Documents/progetti/band/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8001
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/szz/Documents/progetti/band/backend/.env
+
+[Install]
+WantedBy=multi-user.target
