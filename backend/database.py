@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+from sqlalchemy import text
 from sqlmodel import Field, SQLModel, create_engine, Session, select
 
 DATABASE_URL = "sqlite:///./band_manager.db"
@@ -23,6 +24,7 @@ class Song(SQLModel, table=True):
     validation_error: Optional[str] = None
     lyrics: Optional[str] = None
     chords_url: Optional[str] = None
+    chords_text: Optional[str] = None
     youtube_url: Optional[str] = None
     cover_url: Optional[str] = None
     proposed_by_id: int = Field(foreign_key="user.id")
@@ -38,6 +40,19 @@ class AppSetting(SQLModel, table=True):
 
 def init_db():
     SQLModel.metadata.create_all(engine)
+    # Safe migration: add new columns to existing DB without dropping data
+    with engine.connect() as conn:
+        for col in ("ALTER TABLE song ADD COLUMN chords_text TEXT",):
+            try:
+                conn.execute(text(col))
+                conn.commit()
+            except Exception:
+                pass
+    # Ensure chords_enabled setting exists (default: disabled)
+    with Session(engine) as session:
+        if not session.get(AppSetting, "chords_enabled"):
+            session.add(AppSetting(key="chords_enabled", value="false"))
+            session.commit()
 
 
 def get_session():

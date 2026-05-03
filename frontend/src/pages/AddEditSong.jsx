@@ -15,6 +15,7 @@ export default function AddEditSong() {
   const [validating, setValidating] = useState(false)
   const [validationStatus, setValidationStatus] = useState(null) // 'ok' | 'error' | null
   const [validationMsg, setValidationMsg] = useState('')
+  const [createdSongId, setCreatedSongId] = useState(null)
   const [error, setError] = useState('')
   const pollRef = useRef(null)
 
@@ -49,7 +50,9 @@ export default function AddEditSong() {
       } else {
         setValidating(true)
         setValidationStatus(null)
+        setCreatedSongId(null)
         const { data: created } = await client.post('/songs', { artist, title })
+        setCreatedSongId(created.id)
 
         // Poll until validated or error
         pollRef.current = setInterval(async () => {
@@ -158,16 +161,30 @@ export default function AddEditSong() {
         {validationStatus === 'error' && (
           <div className="flex items-start gap-3 p-4 rounded-xl bg-red-900/30 border border-red-800">
             <XCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-            <div>
+            <div className="flex-1">
               <p className="text-red-300 text-sm font-medium">Brano non trovato</p>
               <p className="text-red-400 text-xs mt-0.5">{validationMsg}</p>
-              <button
-                type="button"
-                onClick={() => setValidationStatus(null)}
-                className="text-xs text-brand-400 mt-2 underline"
-              >
-                Riprova con dati diversi
-              </button>
+              <p className="text-gray-400 text-xs mt-2">Vuoi aggiungerlo comunque?</p>
+              <div className="flex gap-3 mt-3">
+                <button
+                  type="button"
+                  onClick={() => navigate(`/songs/${createdSongId}`)}
+                  className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium"
+                >
+                  Inserisci comunque
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (createdSongId) await client.delete(`/songs/${createdSongId}`)
+                    setValidationStatus(null)
+                    setCreatedSongId(null)
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-red-800 hover:bg-red-700 text-white text-xs font-medium"
+                >
+                  Elimina
+                </button>
+              </div>
             </div>
           </div>
         )}

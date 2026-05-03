@@ -261,15 +261,58 @@ function SettingField({ label, hint, settingKey, initialMasked }) {
 
 function SettingsTab() {
   const [settings, setSettings] = useState([])
+  const [chordsEnabled, setChordsEnabled] = useState(false)
+  const [chordsLoaded, setChordsLoaded] = useState(false)
+  const [chordsSaving, setChordsSaving] = useState(false)
 
   useEffect(() => {
     client.get('/admin/settings').then(({ data }) => setSettings(data))
+    client.get('/config').then(({ data }) => {
+      setChordsEnabled(data.chords_enabled)
+      setChordsLoaded(true)
+    })
   }, [])
+
+  async function toggleChords() {
+    setChordsSaving(true)
+    const next = !chordsEnabled
+    try {
+      await client.put('/admin/settings', { key: 'chords_enabled', value: next.toString() })
+      setChordsEnabled(next)
+    } finally {
+      setChordsSaving(false)
+    }
+  }
 
   const masked = Object.fromEntries(settings.map((s) => [s.key, s.value_masked]))
 
   return (
     <div className="space-y-6">
+      {/* Toggle accordi */}
+      <div className="flex items-center justify-between py-1">
+        <div>
+          <p className="text-sm font-medium text-gray-300">Gestione accordi</p>
+          <p className="text-xs text-gray-500">Abilita caricamento accordi e tablature</p>
+        </div>
+        {chordsLoaded && (
+          <button
+            onClick={toggleChords}
+            disabled={chordsSaving}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+              chordsEnabled ? 'bg-brand-600' : 'bg-gray-700'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                chordsEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        )}
+      </div>
+
+      <div className="border-t border-gray-800" />
+
       <SettingField
         label="Groq API Key"
         hint="Trovala su console.groq.com → API Keys"

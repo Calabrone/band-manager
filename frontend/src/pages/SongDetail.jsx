@@ -21,13 +21,20 @@ export default function SongDetail() {
   const [song, setSong] = useState(null)
   const [loading, setLoading] = useState(true)
   const [enriching, setEnriching] = useState(false)
+  const [chordsEnabled, setChordsEnabled] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       try {
-        const { data } = await client.get(`/songs/${id}`)
-        if (!cancelled) setSong(data)
+        const [songRes, configRes] = await Promise.all([
+          client.get(`/songs/${id}`),
+          client.get('/config'),
+        ])
+        if (!cancelled) {
+          setSong(songRes.data)
+          setChordsEnabled(configRes.data.chords_enabled)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -134,7 +141,7 @@ export default function SongDetail() {
               <ExternalLink className="w-3 h-3" />
             </a>
           )}
-          {song.chords_url && (
+          {chordsEnabled && song.chords_url && (
             <a
               href={song.chords_url}
               target="_blank"
@@ -142,7 +149,7 @@ export default function SongDetail() {
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-900/30 border border-blue-800/50 text-blue-300 text-sm"
             >
               <Guitar className="w-4 h-4" />
-              Accordi
+              Tablatura
               <ExternalLink className="w-3 h-3" />
             </a>
           )}
@@ -150,18 +157,31 @@ export default function SongDetail() {
       )}
 
       {/* Re-enrich */}
-      {(song.validation_error || (!song.lyrics && song.validated)) && (
-        <div className="px-4 mb-4">
-          <button
-            onClick={handleEnrich}
-            disabled={enriching}
-            className="flex items-center gap-2 text-sm text-brand-400 hover:text-brand-300 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${enriching ? 'animate-spin' : ''}`} />
-            {enriching ? 'Aggiornamento...' : 'Ricarica testi e accordi'}
-          </button>
+      <div className="px-4 mb-4">
+        <button
+          onClick={handleEnrich}
+          disabled={enriching}
+          className="flex items-center gap-2 text-sm text-brand-400 hover:text-brand-300 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${enriching ? 'animate-spin' : ''}`} />
+          {enriching ? 'Aggiornamento...' : chordsEnabled ? 'Ricarica testi e accordi' : 'Ricarica testi'}
+        </button>
+      </div>
+
+      {/* Chords */}
+      {chordsEnabled && song.chords_text ? (
+        <div className="px-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-sm font-semibold text-gray-300">Accordi</h2>
+            <span className="text-[10px] text-gray-600 italic">generati da AI</span>
+          </div>
+          <pre className="whitespace-pre-wrap text-sm text-blue-200 font-mono leading-relaxed overflow-x-auto">
+            {song.chords_text}
+          </pre>
         </div>
-      )}
+      ) : chordsEnabled && song.validated ? (
+        <p className="px-4 mb-4 text-sm text-gray-500 italic">Accordi non disponibili</p>
+      ) : null}
 
       {/* Lyrics */}
       {song.lyrics ? (

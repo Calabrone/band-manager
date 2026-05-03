@@ -26,6 +26,7 @@ from database import AppSetting, Song, User, get_session, init_db, seed_admin, e
 from modules.validation import validate_song
 from modules.lyrics import fetch_lyrics_and_cover
 from modules.chords import fetch_chords_url
+from modules.chords_text import fetch_chords_text
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -97,16 +98,30 @@ def enrich_song_bg(song_id: int):
         song.cover_url = lyrics_data.get("cover_url")
         logger.info("Genius: lyrics=%s cover=%s", bool(song.lyrics), bool(song.cover_url))
 
-        logger.info("Fetching chords da Songsterr...")
-        song.chords_url = fetch_chords_url(song.artist, song.title)
+        chords_enabled = get_setting(session, "chords_enabled") == "true"
+        if chords_enabled:
+            logger.info("Fetching chords text via Groq...")
+            song.chords_text = fetch_chords_text(song.artist, song.title, groq_key)
+            logger.info("Chords text: %s", bool(song.chords_text))
+            song.chords_url = fetch_chords_url(song.artist, song.title)
+
         song.youtube_url = f"https://music.youtube.com/search?q={quote(song.artist + ' ' + song.title)}"
-        logger.info("Chords URL: %s", song.chords_url)
 
         song.validated = True
         song.validation_error = None
         song.updated_at = datetime.utcnow()
         session.add(song)
         session.commit()
+
+
+# ── Public config ─────────────────────────────────────────────────────────────
+
+@app.get("/api/config")
+def get_config(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    return {"chords_enabled": get_setting(session, "chords_enabled") == "true"}
 
 
 # ── Auth endpoints ────────────────────────────────────────────────────────────
