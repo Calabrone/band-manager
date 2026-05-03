@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from urllib.parse import quote
@@ -5,6 +6,9 @@ from typing import Optional
 
 from dotenv import load_dotenv
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,6 +68,7 @@ def song_to_dict(song: Song, session: Session) -> dict:
 # ── Background enrichment ─────────────────────────────────────────────────────
 
 def enrich_song_bg(song_id: int):
+    logger.info("Enrichment avviato per song_id=%d", song_id)
     with Session(engine) as session:
         song = session.get(Song, song_id)
         if not song:
@@ -72,8 +77,10 @@ def enrich_song_bg(song_id: int):
         groq_key = get_setting(session, "groq_api_key")
         genius_key = get_setting(session, "genius_api_key")
 
+        logger.info("Validazione Groq: %s - %s", song.artist, song.title)
         result = validate_song(song.artist, song.title, groq_key)
         if not result["valid"]:
+            logger.warning("Groq: brano non valido: %s", result["message"])
             song.validation_error = result["message"]
             song.validated = False
             session.add(song)
@@ -82,13 +89,18 @@ def enrich_song_bg(song_id: int):
 
         song.artist = result["artist_normalized"]
         song.title = result["title_normalized"]
+        logger.info("Groq OK: %s - %s", song.artist, song.title)
 
+        logger.info("Fetching lyrics/cover da Genius...")
         lyrics_data = fetch_lyrics_and_cover(song.artist, song.title, genius_key)
         song.lyrics = lyrics_data.get("lyrics")
         song.cover_url = lyrics_data.get("cover_url")
+        logger.info("Genius: lyrics=%s cover=%s", bool(song.lyrics), bool(song.cover_url))
 
+        logger.info("Fetching chords da Songsterr...")
         song.chords_url = fetch_chords_url(song.artist, song.title)
         song.youtube_url = f"https://music.youtube.com/search?q={quote(song.artist + ' ' + song.title)}"
+        logger.info("Chords URL: %s", song.chords_url)
 
         song.validated = True
         song.validation_error = None
