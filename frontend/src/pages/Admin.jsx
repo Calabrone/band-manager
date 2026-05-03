@@ -1,8 +1,64 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus, Save, Trash2, Eye, EyeOff } from 'lucide-react'
+import { ArrowLeft, Plus, Save, Trash2, Eye, EyeOff, KeyRound, X } from 'lucide-react'
 import client from '../api/client'
 import ConfirmDialog from '../components/ConfirmDialog'
+
+function ResetPasswordModal({ user, onClose }) {
+  const [newPassword, setNewPassword] = useState('')
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setError('')
+    if (newPassword.length < 6) {
+      setError('Minimo 6 caratteri')
+      return
+    }
+    setLoading(true)
+    try {
+      await client.put(`/admin/users/${user.id}/password`, { new_password: newPassword })
+      setSuccess(true)
+      setTimeout(onClose, 1200)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Errore nel reset')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-sm bg-gray-900 border border-gray-700 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-white font-semibold text-sm">Reset password — {user.username}</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-200"><X className="w-4 h-4" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
+            placeholder="Nuova password"
+            className="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 text-base"
+          />
+          {error && <p className="text-red-400 text-sm">{error}</p>}
+          {success && <p className="text-green-400 text-sm">Password aggiornata</p>}
+          <button
+            type="submit"
+            disabled={loading || success}
+            className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm disabled:opacity-50"
+          >
+            {loading ? 'Salvataggio...' : 'Imposta password'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 function UsersTab() {
   const [users, setUsers] = useState([])
@@ -12,6 +68,7 @@ function UsersTab() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [toDelete, setToDelete] = useState(null)
+  const [toReset, setToReset] = useState(null)
 
   useEffect(() => {
     client.get('/admin/users').then(({ data }) => setUsers(data))
@@ -63,12 +120,21 @@ function UsersTab() {
                 <p className="text-white text-sm font-medium">{u.username}</p>
                 <p className="text-gray-500 text-xs capitalize">{u.role}</p>
               </div>
-              <button
-                onClick={() => setToDelete(u)}
-                className="p-2 text-gray-500 hover:text-red-400"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setToReset(u)}
+                  className="p-2 text-gray-500 hover:text-brand-400"
+                  title="Reset password"
+                >
+                  <KeyRound className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setToDelete(u)}
+                  className="p-2 text-gray-500 hover:text-red-400"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -121,6 +187,9 @@ function UsersTab() {
           onConfirm={handleDelete}
           onCancel={() => setToDelete(null)}
         />
+      )}
+      {toReset && (
+        <ResetPasswordModal user={toReset} onClose={() => setToReset(null)} />
       )}
     </div>
   )

@@ -130,6 +130,28 @@ def me(current_user: User = Depends(get_current_user)):
     return {"id": current_user.id, "username": current_user.username, "role": current_user.role}
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.put("/api/auth/password")
+def change_password(
+    body: ChangePasswordRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Password attuale errata")
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="La nuova password deve essere di almeno 6 caratteri")
+    user = session.get(User, current_user.id)
+    user.password_hash = hash_password(body.new_password)
+    session.add(user)
+    session.commit()
+    return {"ok": True}
+
+
 # ── Songs endpoints ───────────────────────────────────────────────────────────
 
 class CreateSongRequest(BaseModel):
@@ -316,6 +338,28 @@ def admin_create_user(
     session.commit()
     session.refresh(user)
     return {"id": user.id, "username": user.username, "role": user.role}
+
+
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str
+
+
+@app.put("/api/admin/users/{user_id}/password")
+def admin_reset_password(
+    user_id: int,
+    body: AdminResetPasswordRequest,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_admin),
+):
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="La password deve essere di almeno 6 caratteri")
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utente non trovato")
+    user.password_hash = hash_password(body.new_password)
+    session.add(user)
+    session.commit()
+    return {"ok": True}
 
 
 @app.delete("/api/admin/users/{user_id}", status_code=204)

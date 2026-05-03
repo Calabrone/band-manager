@@ -5,6 +5,7 @@ import Songs from './pages/Songs'
 import SongDetail from './pages/SongDetail'
 import AddEditSong from './pages/AddEditSong'
 import Admin from './pages/Admin'
+import Profile from './pages/Profile'
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, isAdmin } = useAuth()
@@ -22,6 +23,7 @@ function AppRoutes() {
       <Route path="/add" element={<ProtectedRoute><AddEditSong /></ProtectedRoute>} />
       <Route path="/songs/:id/edit" element={<ProtectedRoute><AddEditSong /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+      <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

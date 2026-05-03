@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Music2, PlusCircle, Settings } from 'lucide-react'
+import { Music2, PlusCircle, Settings, UserCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function BottomNav() {
@@ -10,6 +10,7 @@ export default function BottomNav() {
     { to: '/', icon: Music2, label: 'Brani' },
     { to: '/add', icon: PlusCircle, label: 'Aggiungi' },
     ...(isAdmin() ? [{ to: '/admin', icon: Settings, label: 'Admin' }] : []),
+    { to: '/profile', icon: UserCircle, label: 'Profilo' },
   ]
 
   return (
