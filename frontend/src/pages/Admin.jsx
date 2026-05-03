@@ -126,21 +126,26 @@ function UsersTab() {
   )
 }
 
-function SettingField({ label, settingKey, initialMasked }) {
+function SettingField({ label, hint, settingKey, initialMasked }) {
   const [value, setValue] = useState('')
   const [show, setShow] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [placeholder] = useState(initialMasked || 'Non configurata')
+  const [currentMasked, setCurrentMasked] = useState(initialMasked || 'Non configurata')
+
+  useEffect(() => {
+    setCurrentMasked(initialMasked || 'Non configurata')
+  }, [initialMasked])
 
   async function handleSave() {
     if (!value.trim()) return
     setSaving(true)
     try {
-      await client.put('/admin/settings', { key: settingKey, value })
-      setSaved(true)
+      const { data } = await client.put('/admin/settings', { key: settingKey, value })
+      setCurrentMasked(data.value_masked || 'Non configurata')
       setValue('')
-      setTimeout(() => setSaved(false), 2000)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
     } finally {
       setSaving(false)
     }
@@ -149,14 +154,17 @@ function SettingField({ label, settingKey, initialMasked }) {
   return (
     <div>
       <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
-      <p className="text-xs text-gray-500 mb-2">Attuale: <span className="font-mono">{placeholder}</span></p>
+      {hint && <p className="text-xs text-gray-500 mb-1">{hint}</p>}
+      <p className="text-xs text-gray-500 mb-2">
+        Attuale: <span className="font-mono text-gray-400">{currentMasked}</span>
+      </p>
       <div className="flex gap-2">
         <div className="relative flex-1">
           <input
             type={show ? 'text' : 'password'}
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="Nuova chiave..."
+            placeholder="Nuovo valore..."
             className="w-full px-4 py-3 pr-10 rounded-xl bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 text-sm font-mono"
           />
           <button
@@ -175,7 +183,7 @@ function SettingField({ label, settingKey, initialMasked }) {
           }`}
         >
           <Save className="w-4 h-4" />
-          {saved ? 'Salvata' : saving ? '...' : 'Salva'}
+          {saved ? 'Salvata ✓' : saving ? '...' : 'Salva'}
         </button>
       </div>
     </div>
@@ -195,17 +203,18 @@ function SettingsTab() {
     <div className="space-y-6">
       <SettingField
         label="Groq API Key"
+        hint="Trovala su console.groq.com → API Keys"
         settingKey="groq_api_key"
         initialMasked={masked.groq_api_key}
       />
       <SettingField
-        label="LyricsGenius API Key"
+        label="LyricsGenius Access Token"
+        hint="Vai su genius.com/api-clients → crea un'app → copia il campo «Client Access Token»"
         settingKey="genius_api_key"
         initialMasked={masked.genius_api_key}
       />
-      <p className="text-xs text-gray-500">
-        Le chiavi vengono usate dal server per validare brani e scaricare testi.
-        Non vengono mai inviate al browser.
+      <p className="text-xs text-gray-500 pt-2 border-t border-gray-800">
+        Le chiavi sono salvate sul server e non vengono mai inviate al browser.
       </p>
     </div>
   )
