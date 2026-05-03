@@ -109,7 +109,7 @@ def login(body: LoginRequest, session: Session = Depends(get_session)):
     user = session.exec(select(User).where(User.username == body.username)).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenziali errate")
-    token = create_access_token({"sub": user.id})
+    token = create_access_token({"sub": str(user.id)})
     return {"token": token, "user": {"id": user.id, "username": user.username, "role": user.role}}
 
 
