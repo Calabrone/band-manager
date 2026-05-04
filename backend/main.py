@@ -22,7 +22,7 @@ from auth import (
     require_admin,
     verify_password,
 )
-from database import AppSetting, Song, User, get_session, init_db, seed_admin, engine
+from database import AppSetting, Comment, Song, SongLike, User, get_session, init_db, seed_admin, engine
 from modules.validation import validate_song
 from modules.lyrics import fetch_lyrics_and_cover
 from modules.chords import fetch_chords_url
@@ -63,6 +63,20 @@ def song_to_dict(song: Song, session: Session) -> dict:
         **song.model_dump(),
         "proposed_by_username": proposed.username if proposed else "",
         "last_modified_by_username": modified.username if modified else "",
+    }
+
+
+def comment_to_dict(comment: Comment, session: Session) -> dict:
+    author = session.get(User, comment.user_id)
+    return {
+        "id": comment.id,
+        "song_id": comment.song_id,
+        "user_id": comment.user_id,
+        "username": author.username if author else "",
+        "content": comment.content,
+        "parent_id": comment.parent_id,
+        "created_at": comment.created_at.isoformat(),
+        "updated_at": comment.updated_at.isoformat(),
     }
 
 
@@ -308,6 +322,139 @@ def re_enrich(
     session.commit()
     background_tasks.add_task(enrich_song_bg, song.id)
     return {"detail": "Enrichment avviato"}
+
+
+# ── Comments endpoints ────────────────────────────────────────────────────────
+
+class CreateCommentRequest(BaseModel):
+    content: str
+    parent_id: Optional[int] = None
+
+
+class UpdateCommentRequest(BaseModel):
+    content: str
+
+
+@app.get("/api/songs/{song_id}/comments")
+def list_comments(
+    song_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if not session.get(Song, song_id):
+        raise HTTPException(status_code=404, detail="Brano non trovato")
+    comments = session.exec(
+        select(Comment).where(Comment.song_id == song_id).order_by(Comment.created_at)
+    ).all()
+    return [comment_to_dict(c, session) for c in comments]
+
+
+@app.post("/api/songs/{song_id}/comments", status_code=201)
+def create_comment(
+    song_id: int,
+    body: CreateCommentRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Il commento non può essere vuoto")
+    if not session.get(Song, song_id):
+        raise HTTPException(status_code=404, detail="Brano non trovato")
+    if body.parent_id is not None:
+        parent = session.get(Comment, body.parent_id)
+        if not parent or parent.song_id != song_id:
+            raise HTTPException(status_code=400, detail="Commento padre non valido")
+        if parent.parent_id is not None:
+            raise HTTPException(status_code=400, detail="Nidificazione massima raggiunta")
+    comment = Comment(
+        song_id=song_id,
+        user_id=current_user.id,
+        content=content,
+        parent_id=body.parent_id,
+    )
+    session.add(comment)
+    session.commit()
+    session.refresh(comment)
+    return comment_to_dict(comment, session)
+
+
+@app.put("/api/songs/{song_id}/comments/{comment_id}")
+def update_comment(
+    song_id: int,
+    comment_id: int,
+    body: UpdateCommentRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    comment = session.get(Comment, comment_id)
+    if not comment or comment.song_id != song_id:
+        raise HTTPException(status_code=404, detail="Commento non trovato")
+    if comment.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Non puoi modificare questo commento")
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Il commento non può essere vuoto")
+    comment.content = content
+    comment.updated_at = datetime.utcnow()
+    session.add(comment)
+    session.commit()
+    session.refresh(comment)
+    return comment_to_dict(comment, session)
+
+
+@app.delete("/api/songs/{song_id}/comments/{comment_id}", status_code=204)
+def delete_comment(
+    song_id: int,
+    comment_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    comment = session.get(Comment, comment_id)
+    if not comment or comment.song_id != song_id:
+        raise HTTPException(status_code=404, detail="Commento non trovato")
+    if comment.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Non puoi eliminare questo commento")
+    if comment.parent_id is None:
+        for reply in session.exec(select(Comment).where(Comment.parent_id == comment_id)).all():
+            session.delete(reply)
+    session.delete(comment)
+    session.commit()
+
+
+# ── Likes endpoints ───────────────────────────────────────────────────────────
+
+@app.get("/api/songs/{song_id}/likes")
+def get_likes(
+    song_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if not session.get(Song, song_id):
+        raise HTTPException(status_code=404, detail="Brano non trovato")
+    all_likes = session.exec(select(SongLike).where(SongLike.song_id == song_id)).all()
+    return {"count": len(all_likes), "liked": any(l.user_id == current_user.id for l in all_likes)}
+
+
+@app.post("/api/songs/{song_id}/likes")
+def toggle_like(
+    song_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if not session.get(Song, song_id):
+        raise HTTPException(status_code=404, detail="Brano non trovato")
+    existing = session.exec(
+        select(SongLike).where(SongLike.song_id == song_id, SongLike.user_id == current_user.id)
+    ).first()
+    if existing:
+        session.delete(existing)
+        session.commit()
+    else:
+        session.add(SongLike(song_id=song_id, user_id=current_user.id))
+        session.commit()
+    all_likes = session.exec(select(SongLike).where(SongLike.song_id == song_id)).all()
+    return {"count": len(all_likes), "liked": not bool(existing)}
 
 
 # ── Admin endpoints ───────────────────────────────────────────────────────────

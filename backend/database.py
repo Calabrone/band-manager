@@ -38,13 +38,34 @@ class AppSetting(SQLModel, table=True):
     value: str = ""
 
 
+class Comment(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    song_id: int = Field(foreign_key="song.id", index=True)
+    user_id: int = Field(foreign_key="user.id")
+    content: str
+    parent_id: Optional[int] = Field(default=None, foreign_key="comment.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SongLike(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    song_id: int = Field(foreign_key="song.id", index=True)
+    user_id: int = Field(foreign_key="user.id")
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
-    # Safe migration: add new columns to existing DB without dropping data
+    # Safe migration: add new columns/tables to existing DB without dropping data
     with engine.connect() as conn:
-        for col in ("ALTER TABLE song ADD COLUMN chords_text TEXT",):
+        for ddl in (
+            "ALTER TABLE song ADD COLUMN chords_text TEXT",
+            "CREATE TABLE IF NOT EXISTS comment (id INTEGER PRIMARY KEY, song_id INTEGER NOT NULL REFERENCES song(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES user(id), content TEXT NOT NULL, parent_id INTEGER REFERENCES comment(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS songlike (id INTEGER PRIMARY KEY, song_id INTEGER NOT NULL REFERENCES song(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES user(id))",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_songlike ON songlike (song_id, user_id)",
+        ):
             try:
-                conn.execute(text(col))
+                conn.execute(text(ddl))
                 conn.commit()
             except Exception:
                 pass

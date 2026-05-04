@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Guitar, Music, Pencil, RefreshCw, Youtube } from 'lucide-react'
 import client from '../api/client'
+import LikeButton from '../components/LikeButton'
+import CommentSection from '../components/CommentSection'
 
 const CATEGORY_LABELS = {
   proposta: 'Proposta',
@@ -115,6 +117,7 @@ export default function SongDetail() {
           <p className="text-xs text-gray-400">
             Modificato da <span className="text-gray-200">{song.last_modified_by_username}</span>
           </p>
+          <LikeButton songId={id} />
           {!song.validated && !song.validation_error && (
             <span className="flex items-center gap-1 text-xs text-yellow-400">
               <RefreshCw className="w-3 h-3 animate-spin" /> Validazione in corso...
@@ -194,6 +197,10 @@ export default function SongDetail() {
       ) : song.validated ? (
         <p className="px-4 text-sm text-gray-500 italic">Testo non disponibile</p>
       ) : null}
+
+      <div className="mt-8 border-t border-gray-800 pt-4 pb-4">
+        <CommentSection songId={id} />
+      </div>
     </div>
   )
 }

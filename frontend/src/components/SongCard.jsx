@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MoreVertical, Music, Pencil, Trash2, ArrowRight, Loader2 } from 'lucide-react'
+import LikeButton from './LikeButton'
 
 const CATEGORY_LABELS = {
   proposta: 'Proposta',
@@ -80,6 +81,7 @@ export default function SongCard({ song, onDelete, onCategoryChange }) {
         <p className="text-gray-600 text-xs mt-0.5">
           {song.proposed_by_username}
         </p>
+        {song.validated && <LikeButton songId={song.id} compact={true} />}
       </div>
 
       {/* Menu */}
