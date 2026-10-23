@@ -26,7 +26,7 @@ L'app gira su **`https://www.motorn.it/band/`** (`band.motorn.it` è un redirect
 
 - **Struttura sul server** (`/www.motorn.it/band/` via FTP): `index.html`+`assets/` (build), `.htaccess` (da `frontend/public/.htaccess`), `api/` (da `php-api/`), `api/config.php` (SECRET_KEY, creato dal deploy, mai sovrascritto), `api/data/` (DB `band_manager.db` e `error.log`, protetti da `Require all denied`). Nella radice di `www.motorn.it` non c'è nulla del progetto: ogni servizio ha la sua sottocartella.
 - **Credenziali FTP:** `deploy/.ftp.env` (non versionato; modello `deploy/.ftp.env.example`).
-- **Router PHP:** `php-api/index.php` → `src/Routes.php` (tabella metodo/regex/handler); `Db.php` crea/migra lo schema al primo request (`PRAGMA user_version`); `Auth.php` JWT HS256 a mano; `Services.php` client curl (Groq, Genius, lyrics.ovh, Songsterr); `Enrich.php` pipeline. `allow_url_fopen` è Off: solo curl.
+- **Router PHP:** `php-api/index.php` → `src/Routes.php` (tabella metodo/regex/handler); `Db.php` crea/migra lo schema al primo request (`PRAGMA user_version`); `Auth.php` JWT HS256 a mano; `Services.php` client curl (Groq, Genius, lyrics.ovh, Songsterr); `Enrich.php` pipeline. `allow_url_fopen` è Off: solo curl. Modello Groq: costante `Groq::MODEL` (`openai/gpt-oss-120b`, con ragionamento: usare `max_completion_tokens` larghi e `reasoning_effort: low`; con `max_tokens` bassi la risposta esce vuota).
 - **Arricchimento:** non ci sono task in background. `POST /api/songs` crea il brano; il frontend poi chiama `POST /api/songs/{id}/enrich` (esegue tutta la pipeline, `ignore_user_abort`) e fa polling su `GET /api/songs/{id}`.
 - **Authorization:** sotto CGI/FastCGI Apache può scartarla: il `.htaccess` la reinoltra e il frontend invia anche `X-Auth-Token`. Senza header il valore è stringa vuota, trattata come assente.
 - **`Options -MultiViews`** nel `.htaccess` è necessario (altrimenti `/api/config` si risolve in `config.php`).
@@ -99,10 +99,10 @@ All Python imports use relative names (`from database import ...`), so the backe
 - **`main.py`** — all routes + `enrich_song_bg` background task
 - **`database.py`** — SQLModel models + safe migrations in `init_db()` (ALTER TABLE / CREATE IF NOT EXISTS, never drops data)
 - **`auth.py`** — JWT via `python-jose`; bcrypt used directly (not passlib, incompatible with bcrypt ≥4); JWT `sub` is a string, cast to `int` on decode
-- **`modules/validation.py`** — Groq `llama-3.3-70b-versatile` validates and normalizes artist/title
+- **`modules/validation.py`** — Groq `llama-3.3-70b-versatile` (non più disponibile su Groq; la produzione PHP usa `openai/gpt-oss-120b`, vedi `php-api/src/Services.php`) validates and normalizes artist/title
 - **`modules/lyrics.py`** — Genius API for `cover_url` only; **lyrics.ovh** for lyrics text (Genius blocks server-side scraping with 403)
 - **`modules/chords.py`** — Songsterr JSON API for tab URL; falls back to search URL on 404
-- **`modules/chords_text.py`** — Groq `llama-3.3-70b-versatile` generates chord-over-lyrics schema (only called when `chords_enabled` setting is `"true"`)
+- **`modules/chords_text.py`** — Groq `llama-3.3-70b-versatile` (idem, obsoleto) generates chord-over-lyrics schema (only called when `chords_enabled` setting is `"true"`)
 
 #### DB models
 

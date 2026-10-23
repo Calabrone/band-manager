@@ -31,7 +31,10 @@ final class Curl
 final class Groq
 {
     private const URL = 'https://api.groq.com/openai/v1/chat/completions';
-    private const MODEL = 'llama-3.3-70b-versatile';
+    // Modello OpenAI ospitato da Groq (llama-3.3-70b-versatile non e' piu' disponibile).
+    // E' un modello con ragionamento: i token di ragionamento rientrano in max_completion_tokens,
+    // quindi i limiti sono larghi e reasoning_effort e' basso.
+    private const MODEL = 'openai/gpt-oss-120b';
 
     private const VALIDATE_SYSTEM = <<<'T'
 Sei un esperto di musica. Il tuo compito è verificare se esiste una canzone reale con i dati forniti.
@@ -88,7 +91,8 @@ T;
                 ['role' => 'user', 'content' => $user],
             ],
             'temperature' => 0.1,
-            'max_tokens' => $maxTokens,
+            'max_completion_tokens' => $maxTokens,
+            'reasoning_effort' => 'low',
         ], JSON_UNESCAPED_UNICODE);
         [$status, $body, $err] = Curl::request(
             'POST', self::URL,
@@ -121,7 +125,7 @@ T;
         }
         try {
             $raw = self::chat($key, self::VALIDATE_SYSTEM,
-                strtr(self::VALIDATE_USER, ['{artist}' => $artist, '{title}' => $title]), 200);
+                strtr(self::VALIDATE_USER, ['{artist}' => $artist, '{title}' => $title]), 1024);
         } catch (Throwable $e) {
             return $fail('Errore validazione: ' . $e->getMessage());
         }
@@ -149,7 +153,7 @@ T;
         }
         try {
             $text = self::chat($key, self::CHORDS_SYSTEM,
-                strtr(self::CHORDS_USER, ['{artist}' => $artist, '{title}' => $title]), 1500);
+                strtr(self::CHORDS_USER, ['{artist}' => $artist, '{title}' => $title]), 4096);
         } catch (Throwable $e) {
             return null;
         }
