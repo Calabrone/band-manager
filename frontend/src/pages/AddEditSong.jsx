@@ -54,6 +54,14 @@ export default function AddEditSong() {
         const { data: created } = await client.post('/songs', { artist, title })
         setCreatedSongId(created.id)
 
+        // L'arricchimento gira in una richiesta dedicata (niente task in background su PHP):
+        // non la attendiamo, il polling sotto rileva l'esito
+        client.post(`/songs/${created.id}/enrich`).catch(() => {
+          stopPolling()
+          setValidating(false)
+          setError("Errore durante la validazione del brano")
+        })
+
         // Poll until validated or error
         pollRef.current = setInterval(async () => {
           try {

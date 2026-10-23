@@ -1,0 +1,7 @@
+<?php
+// Copiare in config.php (non versionato, non sovrascritto dal deploy) e impostare secret_key.
+// Generare la chiave con:  php -r "echo bin2hex(random_bytes(32));"
+return [
+    'secret_key' => 'CAMBIA-QUESTA-CHIAVE',
+    'db_path'    => __DIR__ . '/data/band_manager.db',
+];

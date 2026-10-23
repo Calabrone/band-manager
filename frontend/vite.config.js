@@ -5,11 +5,14 @@ import { readFileSync } from 'fs'
 
 const { version } = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
+// Percorso base dell'app (con slash finale). Default /band/; override: VITE_BASE=/ npm run build
+const BASE = process.env.VITE_BASE ?? '/band/'
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },
-  base: '/band/',
+  base: BASE,
   plugins: [
     react(),
     VitePWA({
@@ -18,7 +21,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         runtimeCaching: [
           {
-            urlPattern: /^\/band\/api\/.*/i,
+            urlPattern: new RegExp(`${BASE}api/`),
             handler: 'NetworkOnly',
           },
         ],
@@ -32,13 +35,14 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'portrait',
         lang: 'it',
-        start_url: '/band/',
-        scope: '/band/',
+        id: BASE,
+        start_url: BASE,
+        scope: BASE,
         icons: [
-          { src: '/band/icon-192.png',          sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: '/band/icon-512.png',          sizes: '512x512', type: 'image/png', purpose: 'any' },
-          { src: '/band/icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-          { src: '/band/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: `${BASE}icon-192.png`,          sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: `${BASE}icon-512.png`,          sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: `${BASE}icon-maskable-192.png`, sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+          { src: `${BASE}icon-maskable-512.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
     }),

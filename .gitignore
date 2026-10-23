@@ -6,6 +6,7 @@ __pycache__/
 venv/
 *.egg-info/
 .env
+.ftp.env
 *.db
 *.db-shm
 *.db-wal
@@ -18,3 +19,10 @@ dist/
 # Misc
 *.log
 .env.local
+
+# Backup DB scaricati da Aruba
+backups/
+
+# Config PHP con SECRET_KEY (creata dal deploy sul server)
+php-api/config.php
+.pytest_cache/

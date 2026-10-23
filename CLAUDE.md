@@ -20,7 +20,43 @@ npm run build    # outputs to dist/
 
 Both servers must run together for local development. The Vite proxy in `vite.config.js` forwards `/api/*` to `:8001`.
 
-## Deploy to RPi4
+## Produzione: hosting Aruba (PHP + SQLite)
+
+L'app gira su **`https://www.motorn.it/band/`** (`band.motorn.it` è un redirect 301 creato dal pannello Aruba: un record A + host rewrite non funziona, Aruba instrada per host e il certificato non copre il sottodominio). Hosting Linux condiviso: solo PHP 8.5 (CGI/FastCGI), nessun RDBMS, accesso solo FTP. Il backend FastAPI (`backend/`) è la versione originale (RPi); quello in produzione è la riscrittura PHP in **`php-api/`**, con le stesse API, lo stesso schema SQLite e gli stessi hash bcrypt.
+
+- **Struttura sul server** (`/www.motorn.it/band/` via FTP): `index.html`+`assets/` (build), `.htaccess` (da `frontend/public/.htaccess`), `api/` (da `php-api/`), `api/config.php` (SECRET_KEY, creato dal deploy, mai sovrascritto), `api/data/` (DB `band_manager.db` e `error.log`, protetti da `Require all denied`). Nella radice di `www.motorn.it` non c'è nulla del progetto: ogni servizio ha la sua sottocartella.
+- **Credenziali FTP:** `deploy/.ftp.env` (non versionato; modello `deploy/.ftp.env.example`).
+- **Router PHP:** `php-api/index.php` → `src/Routes.php` (tabella metodo/regex/handler); `Db.php` crea/migra lo schema al primo request (`PRAGMA user_version`); `Auth.php` JWT HS256 a mano; `Services.php` client curl (Groq, Genius, lyrics.ovh, Songsterr); `Enrich.php` pipeline. `allow_url_fopen` è Off: solo curl.
+- **Arricchimento:** non ci sono task in background. `POST /api/songs` crea il brano; il frontend poi chiama `POST /api/songs/{id}/enrich` (esegue tutta la pipeline, `ignore_user_abort`) e fa polling su `GET /api/songs/{id}`.
+- **Authorization:** sotto CGI/FastCGI Apache può scartarla: il `.htaccess` la reinoltra e il frontend invia anche `X-Auth-Token`. Senza header il valore è stringa vuota, trattata come assente.
+- **`Options -MultiViews`** nel `.htaccess` è necessario (altrimenti `/api/config` si risolve in `config.php`).
+
+```bash
+# Dalla cartella band-manager/ (Git Bash)
+bash deploy/deploy_aruba.sh band                  # API + frontend (build con base /band/)
+bash deploy/deploy_aruba.sh band --api            # solo API (+ .htaccess radice)
+bash deploy/deploy_aruba.sh band --frontend       # solo frontend
+bash deploy/backup_db_aruba.sh band               # scarica il DB in backups/ (farlo prima di ogni deploy API)
+
+# Ambiente di prova (DB e config propri, www.motorn.it/band-test/)
+bash deploy/deploy_aruba.sh band-test --api
+```
+
+Il deploy non tocca mai `api/config.php` né `api/data/*` (tranne `data/.htaccess`). Build con base diversa: `export MSYS2_ENV_CONV_EXCL=VITE_BASE; VITE_BASE=/ npm run build` (Git Bash converte altrimenti `/` in un percorso Windows).
+
+### Test
+
+```bash
+# API (pytest + httpx) contro l'ambiente di prova; non lanciarli sul DB di produzione
+pip install pytest httpx
+cd tests/api && API_BASE_URL=https://www.motorn.it/band-test/api pytest -q    # ADMIN_USER/ADMIN_PASSWORD se diversi da admin/admin123
+# Frontend: controlla base path in index.html, manifest, service worker
+bash tests/frontend/check_base.sh /band/
+```
+
+L'ambiente `band-test` ha un DB vuoto (seed `admin`/`admin123`). Per i test sul PHP non c'è PHP in locale: si deploya su `band-test` e si lancia pytest da lì.
+
+## Deploy to RPi4 (versione originale, da dismettere)
 
 - **SSH key:** `~/.ssh/rpi_strava` | **Host:** `szz@192.168.1.20` | **Path:** `/home/szz/Documents/progetti/band/`
 - **Public URL:** `https://homeszz.ddns.net/band/`

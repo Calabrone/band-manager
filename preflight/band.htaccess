@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# Authorization sotto CGI/FastCGI
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# API (come nella versione finale): /api/xyz -> script PHP, escluse data/ e src/
+RewriteRule ^api/(?!data/|src/)(.*)$ check.php?mode=api&path=$1 [L,QSA]
+
+# Fallback SPA
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]

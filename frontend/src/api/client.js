@@ -8,6 +8,8 @@ client.interceptors.request.use((config) => {
   const token = localStorage.getItem('band_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+    // Fallback: sotto CGI/FastCGI Apache puo' scartare Authorization
+    config.headers['X-Auth-Token'] = token
   }
   return config
 })
