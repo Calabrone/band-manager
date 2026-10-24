@@ -172,6 +172,24 @@ final class Routes
         return $u === null ? '' : $u['username'];
     }
 
+    /**
+     * Copertina di ripiego per i brani senza cover (es. inseriti con force): miniatura del video
+     * di prova piu' recente, o thumbnail ricavata dal link YouTube.
+     */
+    private static function videoCover(int $songId): ?string
+    {
+        $rows = Db::all('SELECT url, thumb_url FROM song_video WHERE song_id = ? ORDER BY recorded_on DESC, id DESC', [$songId]);
+        foreach ($rows as $v) {
+            if ($v['thumb_url'] !== null && $v['thumb_url'] !== '') {
+                return $v['thumb_url'];
+            }
+            if (preg_match('~(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|embed/)|youtu\.be/)([\w-]{11})~', (string)$v['url'], $m)) {
+                return 'https://img.youtube.com/vi/' . $m[1] . '/hqdefault.jpg';
+            }
+        }
+        return null;
+    }
+
     private static function songOut(array $s): array
     {
         return [
@@ -185,7 +203,7 @@ final class Routes
             'chords_url' => $s['chords_url'],
             'chords_text' => $s['chords_text'],
             'youtube_url' => $s['youtube_url'],
-            'cover_url' => $s['cover_url'],
+            'cover_url' => $s['cover_url'] ?: self::videoCover((int)$s['id']),
             'proposed_by_id' => (int)$s['proposed_by_id'],
             'last_modified_by_id' => (int)$s['last_modified_by_id'],
             'created_at' => Db::iso($s['created_at']),
