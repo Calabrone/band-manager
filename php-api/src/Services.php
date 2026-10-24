@@ -224,16 +224,28 @@ final class Songsterr
     }
 }
 
-/** Invio email con mail() (mittente da config.php: mail_from). */
+/**
+ * Invio email. Con smtp_host in config.php usa SMTP autenticato (curl smtps://): su Aruba mail() risulta
+ * disabilitata (restituisce false). Senza smtp_* ripiega su mail(). Mittente: mail_from.
+ */
 final class Mailer
 {
     public static function send(string $to, string $subject, string $body): bool
+    {
+        if (Config::get('smtp_host') !== '') {
+            $from = Config::get('mail_from');
+            return self::viaSmtp($to, $subject, $body, $from !== '' ? $from : 'Band Manager <noreply@motorn.it>');
+        }
+        return self::viaMail($to, $subject, $body);
+    }
+
+    private static function viaMail(string $to, string $subject, string $body): bool
     {
         $from = Config::get('mail_from');
         if ($from === '') {
             $from = 'Band Manager <noreply@motorn.it>';
         }
-        $headers = implode("
+        $headers = implode("
 ", [
             'From: ' . $from,
             'MIME-Version: 1.0',
@@ -244,6 +256,60 @@ final class Mailer
         $ok = @mail($to, $encodedSubject, $body, $headers);
         if (!$ok) {
             Http::log("Mailer: invio fallito verso $to");
+        }
+        return $ok;
+    }
+
+    /** Indirizzo nudo da "Nome <indirizzo>". */
+    private static function address(string $from): string
+    {
+        return preg_match('/<([^<>\s]+)>/', $from, $m) ? $m[1] : trim($from);
+    }
+
+    private static function viaSmtp(string $to, string $subject, string $body, string $from): bool
+    {
+        $host = Config::get('smtp_host');
+        $port = Config::get('smtp_port') ?: '465';
+        $user = Config::get('smtp_user');
+        $envelopeFrom = self::address($from);
+        $domain = substr(strrchr($envelopeFrom, '@') ?: '@localhost', 1);
+
+        $msg = implode("\r\n", [
+            'From: ' . $from,
+            'To: ' . $to,
+            'Subject: =?UTF-8?B?' . base64_encode($subject) . '?=',
+            'Date: ' . gmdate('r'),
+            'Message-ID: <' . bin2hex(random_bytes(12)) . '@' . $domain . '>',
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=UTF-8',
+            'Content-Transfer-Encoding: base64',
+            '',
+            rtrim(chunk_split(base64_encode($body), 76, "\r\n")),
+            '',
+        ]);
+
+        $pos = 0;
+        $ch = curl_init(($port === '465' ? 'smtps' : 'smtp') . "://$host:$port");
+        curl_setopt_array($ch, [
+            CURLOPT_USERNAME => $user,
+            CURLOPT_PASSWORD => Config::get('smtp_pass'),
+            CURLOPT_MAIL_FROM => "<$envelopeFrom>",
+            CURLOPT_MAIL_RCPT => ["<$to>"],
+            CURLOPT_UPLOAD => true,
+            CURLOPT_READFUNCTION => function ($c, $fd, int $len) use ($msg, &$pos): string {
+                $chunk = substr($msg, $pos, $len);
+                $pos += strlen($chunk);
+                return $chunk;
+            },
+            CURLOPT_INFILESIZE => strlen($msg),
+            CURLOPT_USE_SSL => CURLUSESSL_ALL,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_TIMEOUT => 25,
+        ]);
+        $ok = curl_exec($ch) !== false;
+        if (!$ok) {
+            // Solo l'errore di curl: mai la password
+            Http::log("Mailer: SMTP fallito verso $to (" . curl_error($ch) . ')');
         }
         return $ok;
     }
