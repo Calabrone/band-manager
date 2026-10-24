@@ -17,7 +17,9 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    // Un 401 sul login e' "credenziali errate": l'errore va mostrato dal form, non ricaricare la pagina
+    const isLoginAttempt = err.config?.url?.startsWith('/auth/login')
+    if (err.response?.status === 401 && !isLoginAttempt) {
       localStorage.removeItem('band_token')
       localStorage.removeItem('band_user')
       window.location.href = import.meta.env.BASE_URL + 'login'
