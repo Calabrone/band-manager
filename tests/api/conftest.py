@@ -3,7 +3,8 @@
 Si eseguono contro un'istanza reale, indicata da variabili d'ambiente:
   API_BASE_URL   es. https://www.motorn.it/band-test/api   (obbligatoria)
   ADMIN_USER     default "admin"
-  ADMIN_PASSWORD default "admin123"
+  ADMIN_PASSWORD password dell'admin dell'istanza (default "admin123": su un DB nuovo l'admin
+                 deve prima cambiarla, l'API la rifiuta finche' resta quella di default)
 I test creano i propri utenti/brani e li eliminano a fine sessione.
 """
 import os
@@ -64,9 +65,18 @@ def login(username, password):
     return Api(d["token"], d["user"])
 
 
+def token_of(url):
+    """Token in chiaro dall'ultimo segmento dell'URL di un invito o di un reset."""
+    return url.rstrip("/").rsplit("/", 1)[-1]
+
+
 @pytest.fixture(scope="session")
 def admin():
-    return login(ADMIN_USER, ADMIN_PASSWORD)
+    api = login(ADMIN_USER, ADMIN_PASSWORD)
+    assert not api.user["must_change_password"], (
+        "L'admin usa la password di default: cambiala (Profilo) e passa la nuova in ADMIN_PASSWORD"
+    )
+    return api
 
 
 @pytest.fixture(scope="session")
@@ -80,25 +90,35 @@ def made(admin):
         admin.delete(f"/admin/users/{uid}")
 
 
-def _make_user(admin, made, role="member"):
+def register_user(admin, made, role="member", email=None):
+    """Crea un utente col flusso reale: invito dell'admin + registrazione."""
+    inv = admin.post("/admin/invites", json={"role": role})
+    assert inv.status_code == 201, inv.text
     name = f"t_{role}_{uuid.uuid4().hex[:8]}"
     pw = "pw-" + uuid.uuid4().hex[:8]
-    r = admin.post("/admin/users", json={"username": name, "password": pw, "role": role})
+    email = email or f"{name}@example.com"
+    r = httpx.post(
+        f"{API}/auth/register",
+        json={"token": inv.json()["token"], "username": name, "email": email, "password": pw},
+        timeout=60,
+    )
     assert r.status_code == 201, r.text
-    made["users"].append(r.json()["id"])
-    api = login(name, pw)
+    d = r.json()
+    made["users"].append(d["user"]["id"])
+    api = Api(d["token"], d["user"])
     api.password = pw
+    api.email = email
     return api
 
 
 @pytest.fixture()
 def member(admin, made):
-    return _make_user(admin, made)
+    return register_user(admin, made)
 
 
 @pytest.fixture()
 def member2(admin, made):
-    return _make_user(admin, made)
+    return register_user(admin, made)
 
 
 @pytest.fixture()

@@ -9,12 +9,6 @@ const CATEGORY_LABELS = {
   in_scaletta: 'In Scaletta',
 }
 
-const CATEGORY_NEXT = {
-  proposta: 'da_provare',
-  da_provare: 'in_scaletta',
-  in_scaletta: null,
-}
-
 const CATEGORY_COLORS = {
   proposta: 'bg-yellow-900/40 text-yellow-300',
   da_provare: 'bg-blue-900/40 text-blue-300',
@@ -25,7 +19,7 @@ export default function SongCard({ song, onDelete, onCategoryChange }) {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
 
-  const nextCategory = CATEGORY_NEXT[song.category]
+  const otherCategories = Object.keys(CATEGORY_LABELS).filter((c) => c !== song.category)
 
   function handleCardClick(e) {
     if (e.target.closest('[data-menu]')) return
@@ -44,10 +38,10 @@ export default function SongCard({ song, onDelete, onCategoryChange }) {
     navigate(`/songs/${song.id}/edit`)
   }
 
-  function handlePromote(e) {
+  function handleMove(e, category) {
     e.stopPropagation()
     setMenuOpen(false)
-    onCategoryChange(song, nextCategory)
+    onCategoryChange(song, category)
   }
 
   return (
@@ -97,15 +91,16 @@ export default function SongCard({ song, onDelete, onCategoryChange }) {
           <>
             <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
             <div className="absolute right-0 top-8 z-30 bg-gray-800 border border-gray-700 rounded-xl shadow-xl min-w-[160px] overflow-hidden">
-              {nextCategory && (
+              {otherCategories.map((category) => (
                 <button
-                  onClick={handlePromote}
+                  key={category}
+                  onClick={(e) => handleMove(e, category)}
                   className="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-200 hover:bg-gray-700"
                 >
                   <ArrowRight className="w-4 h-4 text-brand-400" />
-                  Sposta in {CATEGORY_LABELS[nextCategory]}
+                  Sposta in {CATEGORY_LABELS[category]}
                 </button>
-              )}
+              ))}
               <button
                 onClick={handleEdit}
                 className="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-200 hover:bg-gray-700"

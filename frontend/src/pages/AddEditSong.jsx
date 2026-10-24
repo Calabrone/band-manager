@@ -3,6 +3,22 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CheckCircle, Loader2, XCircle } from 'lucide-react'
 import client from '../api/client'
 
+const CATEGORIES = [
+  { value: 'proposta', label: 'Proposta' },
+  { value: 'da_provare', label: 'Da Provare' },
+  { value: 'in_scaletta', label: 'In Scaletta' },
+]
+
+// Sezione aperta nella lista brani (salvata da Songs.jsx): e' il default per un nuovo brano
+function lastCategory() {
+  try {
+    const saved = sessionStorage.getItem('band_category')
+    return CATEGORIES.some((c) => c.value === saved) ? saved : 'proposta'
+  } catch {
+    return 'proposta'
+  }
+}
+
 export default function AddEditSong() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -10,12 +26,12 @@ export default function AddEditSong() {
 
   const [artist, setArtist] = useState('')
   const [title, setTitle] = useState('')
-  const [category, setCategory] = useState('proposta')
+  const [category, setCategory] = useState(lastCategory)
   const [submitting, setSubmitting] = useState(false)
   const [validating, setValidating] = useState(false)
   const [validationStatus, setValidationStatus] = useState(null) // 'ok' | 'error' | null
   const [validationMsg, setValidationMsg] = useState('')
-  const [createdSongId, setCreatedSongId] = useState(null)
+  const [createdSongId, setCreatedSongId] = useState(null) // solo se il record esiste gia' (errore in arricchimento)
   const [error, setError] = useState('')
   const pollRef = useRef(null)
 
@@ -38,6 +54,39 @@ export default function AddEditSong() {
 
   useEffect(() => () => stopPolling(), [])
 
+  // Il record nasce solo qui, dopo una validazione riuscita
+  function startEnrichment(created) {
+    setCreatedSongId(created.id)
+
+    // L'arricchimento gira in una richiesta dedicata (niente task in background su PHP):
+    // non la attendiamo, il polling sotto rileva l'esito
+    client.post(`/songs/${created.id}/enrich`).catch(() => {
+      stopPolling()
+      setValidating(false)
+      setError('Errore durante la validazione del brano')
+    })
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const { data } = await client.get(`/songs/${created.id}`)
+        if (data.validated) {
+          stopPolling()
+          setValidating(false)
+          setValidationStatus('ok')
+          setTimeout(() => navigate(`/songs/${data.id}`), 800)
+        } else if (data.validation_error) {
+          stopPolling()
+          setValidating(false)
+          setValidationStatus('error')
+          setValidationMsg(data.validation_error)
+        }
+      } catch {
+        stopPolling()
+        setValidating(false)
+      }
+    }, 2000)
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
@@ -47,48 +96,63 @@ export default function AddEditSong() {
       if (isEdit) {
         await client.put(`/songs/${id}`, { artist, title, category })
         navigate(`/songs/${id}`)
-      } else {
-        setValidating(true)
-        setValidationStatus(null)
-        setCreatedSongId(null)
-        const { data: created } = await client.post('/songs', { artist, title })
-        setCreatedSongId(created.id)
-
-        // L'arricchimento gira in una richiesta dedicata (niente task in background su PHP):
-        // non la attendiamo, il polling sotto rileva l'esito
-        client.post(`/songs/${created.id}/enrich`).catch(() => {
-          stopPolling()
-          setValidating(false)
-          setError("Errore durante la validazione del brano")
-        })
-
-        // Poll until validated or error
-        pollRef.current = setInterval(async () => {
-          try {
-            const { data } = await client.get(`/songs/${created.id}`)
-            if (data.validated) {
-              stopPolling()
-              setValidating(false)
-              setValidationStatus('ok')
-              setTimeout(() => navigate(`/songs/${data.id}`), 800)
-            } else if (data.validation_error) {
-              stopPolling()
-              setValidating(false)
-              setValidationStatus('error')
-              setValidationMsg(data.validation_error)
-            }
-          } catch {
-            stopPolling()
-            setValidating(false)
-          }
-        }, 2000)
+        return
       }
+
+      setValidating(true)
+      setValidationStatus(null)
+      setCreatedSongId(null)
+      const { data: check } = await client.post('/songs/validate', { artist, title })
+      if (!check.valid) {
+        // Brano non trovato: nessun record, decide l'utente
+        setValidating(false)
+        setValidationStatus('error')
+        setValidationMsg(check.message || 'Brano non trovato')
+        return
+      }
+      const { data: created } = await client.post('/songs', {
+        artist: check.artist_normalized,
+        title: check.title_normalized,
+        category,
+      })
+      startEnrichment(created)
     } catch (err) {
       setError(err.response?.data?.detail || 'Errore durante il salvataggio')
       setValidating(false)
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // "Inserisci comunque": l'unico caso in cui un brano non trovato viene salvato
+  async function handleForceInsert() {
+    setError('')
+    if (createdSongId) {
+      navigate(`/songs/${createdSongId}`)
+      return
+    }
+    setSubmitting(true)
+    try {
+      const { data } = await client.post('/songs', { artist, title, category, force: true, message: validationMsg })
+      navigate(`/songs/${data.id}`)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Errore durante il salvataggio')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleDiscard() {
+    setError('')
+    if (createdSongId) {
+      try {
+        await client.delete(`/songs/${createdSongId}`)
+      } catch {
+        // ignore
+      }
+    }
+    setValidationStatus(null)
+    setCreatedSongId(null)
   }
 
   return (
@@ -129,20 +193,19 @@ export default function AddEditSong() {
           />
         </div>
 
-        {isEdit && (
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Categoria</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white focus:outline-none focus:border-brand-500 text-base"
-            >
-              <option value="proposta">Proposta</option>
-              <option value="da_provare">Da Provare</option>
-              <option value="in_scaletta">In Scaletta</option>
-            </select>
-          </div>
-        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">Sezione</label>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            disabled={validating}
+            className="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white focus:outline-none focus:border-brand-500 text-base disabled:opacity-50"
+          >
+            {CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+        </div>
 
         {error && <p className="text-red-400 text-sm">{error}</p>}
 
@@ -172,32 +235,35 @@ export default function AddEditSong() {
             <div className="flex-1">
               <p className="text-red-300 text-sm font-medium">Brano non trovato</p>
               <p className="text-red-400 text-xs mt-0.5">{validationMsg}</p>
-              <p className="text-gray-400 text-xs mt-2">Vuoi aggiungerlo comunque?</p>
+              <p className="text-gray-400 text-xs mt-2">
+                {createdSongId
+                  ? 'Vuoi tenerlo comunque?'
+                  : 'Non è stato salvato nulla. Correggi artista e titolo oppure inseriscilo comunque.'}
+              </p>
               <div className="flex gap-3 mt-3">
                 <button
                   type="button"
-                  onClick={() => navigate(`/songs/${createdSongId}`)}
-                  className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium"
+                  onClick={handleForceInsert}
+                  disabled={submitting}
+                  className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium disabled:opacity-50"
                 >
                   Inserisci comunque
                 </button>
                 <button
                   type="button"
-                  onClick={async () => {
-                    if (createdSongId) await client.delete(`/songs/${createdSongId}`)
-                    setValidationStatus(null)
-                    setCreatedSongId(null)
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-red-800 hover:bg-red-700 text-white text-xs font-medium"
+                  onClick={handleDiscard}
+                  className={`px-3 py-1.5 rounded-lg text-white text-xs font-medium ${
+                    createdSongId ? 'bg-red-800 hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600'
+                  }`}
                 >
-                  Elimina
+                  {createdSongId ? 'Elimina' : 'Annulla'}
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {!validating && validationStatus !== 'ok' && (
+        {!validating && validationStatus === null && (
           <button
             type="submit"
             disabled={submitting}

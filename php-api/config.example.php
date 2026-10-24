@@ -4,4 +4,7 @@
 return [
     'secret_key' => 'CAMBIA-QUESTA-CHIAVE',
     'db_path'    => __DIR__ . '/data/band_manager.db',
+    // Opzionali: se assenti, app_url e' dedotto dalla richiesta e il mittente e' noreply@motorn.it
+    // 'app_url'   => 'https://www.motorn.it/band',
+    // 'mail_from' => 'Band Manager <noreply@motorn.it>',
 ];

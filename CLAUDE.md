@@ -49,12 +49,12 @@ Il deploy non tocca mai `api/config.php` né `api/data/*` (tranne `data/.htacces
 ```bash
 # API (pytest + httpx) contro l'ambiente di prova; non lanciarli sul DB di produzione
 pip install pytest httpx
-cd tests/api && API_BASE_URL=https://www.motorn.it/band-test/api pytest -q    # ADMIN_USER/ADMIN_PASSWORD se diversi da admin/admin123
+cd tests/api && API_BASE_URL=https://www.motorn.it/band-test/api ADMIN_PASSWORD=... pytest -q    # ADMIN_USER se diverso da admin
 # Frontend: controlla base path in index.html, manifest, service worker
 bash tests/frontend/check_base.sh /band/
 ```
 
-L'ambiente `band-test` ha un DB vuoto (seed `admin`/`admin123`). Per i test sul PHP non c'è PHP in locale: si deploya su `band-test` e si lancia pytest da lì.
+L'ambiente `band-test` parte con un DB vuoto (seed `admin`/`admin123`), ma l'API obbliga l'admin con la password di default a cambiarla (`must_change_password`): al primo setup cambiarla da Profilo o con `PUT /api/auth/password`, poi passarla in `ADMIN_PASSWORD`. Per i test sul PHP non c'è PHP in locale: si deploya su `band-test` e si lancia pytest da lì.
 
 ## Deploy to RPi4 (LEGACY — non più mantenuto)
 
@@ -122,10 +122,17 @@ All Python imports use relative names (`from database import ...`), so the backe
 GET  /api/config                        → { chords_enabled: bool }
 POST /api/auth/login                    → { token, user }
 GET  /api/auth/me
-PUT  /api/auth/password                 → requires current_password + new_password (min 6)
+PUT  /api/auth/password                 → requires current_password + new_password (min 6); returns { ok, token, user } (token_version++ invalida i JWT precedenti)
+PUT  /api/auth/profile                  → { username?, email? } (username unico case-insensitive 3-30 [A-Za-z0-9._-]; email unica, "" la cancella)
+GET  /api/auth/invite/{token}           → { valid, role?, expires_at? } (pubblico)
+POST /api/auth/register                 → { token, username, email, password } → crea l'utente col ruolo dell'invito (pubblico, solo con invito valido)
+POST /api/auth/forgot                   → { email } → sempre { ok: true }; manda mail(), link valido 1 h (pubblico, rate limit)
+GET  /api/auth/reset/{token}            → { valid } (pubblico)
+POST /api/auth/reset                    → { token, new_password } (pubblico, monouso)
 
 GET  /api/songs                         → list, optional ?category=
-POST /api/songs                         → creates + triggers enrich_song_bg
+POST /api/songs/validate                → { artist, title } → esito Groq, NON scrive nel DB
+POST /api/songs                         → { artist, title, category?, force?, message? } crea il record (il frontend lo chiama solo dopo validate ok, oppure con force=true per "Inserisci comunque"); enrich poi via POST /songs/{id}/enrich
 GET  /api/songs/{id}
 PUT  /api/songs/{id}
 DELETE /api/songs/{id}
@@ -141,12 +148,19 @@ GET  /api/songs/{id}/likes              → { count, liked: bool }
 POST /api/songs/{id}/likes              → toggles like
 
 GET  /api/admin/users
-POST /api/admin/users
 PUT  /api/admin/users/{id}/password     → admin resets any user's password
+POST /api/admin/users/{id}/reset-link   → { url, expires_at } link di reset (1 h) da mandare in chat
+GET  /api/admin/invites                 → inviti pendenti
+POST /api/admin/invites                 → { role? } → { id, token, url, expires_at } (7 giorni, monouso; token in chiaro solo qui)
+DELETE /api/admin/invites/{id}          → revoca
 DELETE /api/admin/users/{id}
 GET  /api/admin/settings
 PUT  /api/admin/settings
 ```
+
+#### Accesso su invito (solo PHP/Aruba)
+
+Non c'è registrazione libera né creazione utenti con password dell'admin: l'admin genera un link `/invite/<token>` (QR incluso) da Admin → Utenti, il membro sceglie username, email e password. Token (invito e reset) = 256 bit casuali, a DB solo lo SHA-256 (`invite`, `password_reset`); scadenza, monouso, revocabili. `user.token_version` finisce nel claim `tv` del JWT: cambio/reset password invalida le sessioni precedenti. `user.must_change_password` blocca ogni route tranne `/auth/me` e `/auth/password` finché l'admin con password `admin123` non la cambia. Rate limit per IP su login e forgot (tabella `rate_hit`). Email con `mail()` (mittente `mail_from` in `config.php`, default `noreply@motorn.it`; `app_url` opzionale, altrimenti dedotto dalla richiesta); se `mail()` non consegna, resta il link di reset generato dall'admin. Schema v2 (`PRAGMA user_version=2`).
 
 #### API key storage
 

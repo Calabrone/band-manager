@@ -79,6 +79,13 @@ final class Db
         return gmdate('Y-m-d H:i:s', (int)$t) . '.' . sprintf('%06d', (int)(($t - floor($t)) * 1000000));
     }
 
+    /** Timestamp UTC (stesso formato di now()) tra $seconds secondi. */
+    public static function future(int $seconds): string
+    {
+        $t = microtime(true) + $seconds;
+        return gmdate('Y-m-d H:i:s', (int)$t) . '.' . sprintf('%06d', (int)(($t - floor($t)) * 1000000));
+    }
+
     /** ISO 8601 senza timezone, come l'output di FastAPI ("T" al posto dello spazio). */
     public static function iso(string $dbDate): string
     {
@@ -87,31 +94,63 @@ final class Db
 
     private static function init(PDO $pdo): void
     {
-        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 1) {
+        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 2) {
             return;
         }
         $pdo->exec('BEGIN IMMEDIATE');
         try {
             // Un'altra richiesta puo' aver inizializzato mentre aspettavamo il lock.
-            if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 1) {
+            $version = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
+            if ($version >= 2) {
                 $pdo->exec('COMMIT');
                 return;
             }
-            foreach (self::schema() as $ddl) {
-                $pdo->exec($ddl);
+            if ($version < 1) {
+                foreach (self::schema() as $ddl) {
+                    $pdo->exec($ddl);
+                }
+                // Migrazione sicura per DB creati prima di chords_text
+                try {
+                    $pdo->exec('ALTER TABLE song ADD COLUMN chords_text TEXT');
+                } catch (Throwable $e) {
+                    // colonna gia' presente
+                }
+                self::seed($pdo);
             }
-            // Migrazione sicura per DB creati prima di chords_text
-            try {
-                $pdo->exec('ALTER TABLE song ADD COLUMN chords_text TEXT');
-            } catch (Throwable $e) {
-                // colonna gia' presente
-            }
-            self::seed($pdo);
-            $pdo->exec('PRAGMA user_version=1');
+            self::migrateV2($pdo);
+            $pdo->exec('PRAGMA user_version=2');
             $pdo->exec('COMMIT');
         } catch (Throwable $e) {
             $pdo->exec('ROLLBACK');
             throw $e;
+        }
+    }
+
+    /** Inviti, reset password, email utente, invalidazione JWT, rate limit. */
+    private static function migrateV2(PDO $pdo): void
+    {
+        $dup = $pdo->query('SELECT lower(username) AS u, COUNT(*) AS n FROM "user" GROUP BY lower(username) HAVING n > 1')->fetch();
+        if ($dup !== false) {
+            throw new RuntimeException('Migrazione v2 bloccata: username duplicati ignorando le maiuscole (' . $dup['u'] . ')');
+        }
+        foreach ([
+            'ALTER TABLE "user" ADD COLUMN email VARCHAR',
+            'ALTER TABLE "user" ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0',
+            'ALTER TABLE "user" ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0',
+            'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_username_nocase ON "user" (username COLLATE NOCASE)',
+            'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_email_nocase ON "user" (email COLLATE NOCASE) WHERE email IS NOT NULL',
+            'CREATE TABLE IF NOT EXISTS invite (
+                id INTEGER PRIMARY KEY, token_hash VARCHAR NOT NULL UNIQUE, role VARCHAR NOT NULL,
+                created_by_id INTEGER NOT NULL, created_at DATETIME NOT NULL, expires_at DATETIME NOT NULL,
+                used_at DATETIME, used_by_id INTEGER, revoked_at DATETIME)',
+            'CREATE TABLE IF NOT EXISTS password_reset (
+                id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, token_hash VARCHAR NOT NULL UNIQUE,
+                created_at DATETIME NOT NULL, expires_at DATETIME NOT NULL, used_at DATETIME,
+                created_by_admin_id INTEGER)',
+            'CREATE TABLE IF NOT EXISTS rate_hit (id INTEGER PRIMARY KEY, bucket VARCHAR NOT NULL, ts INTEGER NOT NULL)',
+            'CREATE INDEX IF NOT EXISTS ix_rate_hit_bucket ON rate_hit (bucket, ts)',
+        ] as $ddl) {
+            $pdo->exec($ddl);
         }
     }
 

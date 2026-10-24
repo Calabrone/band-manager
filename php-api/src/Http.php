@@ -27,7 +27,7 @@ final class Http
     }
 
     /**
-     * Legge il body JSON. $fields: nome => tipo ('string', 'int', oppure '?string'/'?int' se opzionale).
+     * Legge il body JSON. $fields: nome => tipo ('string', 'int', 'bool', oppure '?string'/'?int'/'?bool' se opzionale).
      * Campi mancanti o di tipo errato -> 422 (come la validazione Pydantic di FastAPI).
      */
     public static function body(array $fields = []): array
@@ -50,7 +50,11 @@ final class Http
                 continue;
             }
             $v = $data[$name];
-            $ok = $t === 'string' ? is_string($v) : is_int($v);
+            $ok = match ($t) {
+                'string' => is_string($v),
+                'bool' => is_bool($v),
+                default => is_int($v),
+            };
             if (!$ok) {
                 self::fail(422, "Tipo non valido per il campo: $name");
             }

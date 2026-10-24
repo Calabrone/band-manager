@@ -10,7 +10,13 @@ import ConfirmDialog from '../components/ConfirmDialog'
 export default function Songs() {
   const { user, logout } = useAuth()
   const [songs, setSongs] = useState([])
-  const [activeCategory, setActiveCategory] = useState('proposta')
+  const [activeCategory, setActiveCategory] = useState(() => {
+    try {
+      return sessionStorage.getItem('band_category') || 'proposta'
+    } catch {
+      return 'proposta'
+    }
+  })
   const [loading, setLoading] = useState(true)
   const [toDelete, setToDelete] = useState(null)
 
@@ -31,6 +37,15 @@ export default function Songs() {
     const interval = setInterval(fetchSongs, 5000)
     return () => clearInterval(interval)
   }, [fetchSongs])
+
+  // Ricordata per preselezionare la sezione quando si aggiunge un brano
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('band_category', activeCategory)
+    } catch {
+      // storage non disponibile
+    }
+  }, [activeCategory])
 
   const filtered = songs.filter((s) => s.category === activeCategory)
   const counts = {

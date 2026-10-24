@@ -3,7 +3,7 @@ import re
 import httpx
 import pytest
 
-from conftest import API, ISO_RE, Api, login
+from conftest import API, ISO_RE, Api, login, register_user
 
 
 # ── Auth ────────────────────────────────────────────────────────────────────
@@ -11,7 +11,7 @@ from conftest import API, ISO_RE, Api, login
 class TestAuth:
     def test_login_ok(self, admin):
         assert admin.token
-        assert set(admin.user) == {"id", "username", "role"}
+        assert set(admin.user) == {"id", "username", "role", "email", "must_change_password"}
         assert admin.user["role"] == "admin"
 
     def test_login_wrong_password(self, anon):
@@ -69,7 +69,8 @@ class TestAuth:
         assert r.status_code == 400
         assert r.json() == {"detail": "La nuova password deve essere di almeno 6 caratteri"}
         r = member.put("/auth/password", json={"current_password": member.password, "new_password": "nuova-pw-1"})
-        assert r.status_code == 200 and r.json() == {"ok": True}
+        assert r.status_code == 200 and r.json()["ok"] is True
+        assert r.json()["token"] and r.json()["user"]["id"] == member.user["id"]
         login(member.user["username"], "nuova-pw-1")
 
 
@@ -243,7 +244,8 @@ class TestAdmin:
             r = member.request(method, path)
             assert r.status_code == 403, path
             assert r.json() == {"detail": "Accesso riservato all'admin"}
-        assert member.post("/admin/users", json={"username": "z", "password": "z"}).status_code == 403
+        assert member.post("/admin/invites", json={}).status_code == 403
+        assert member.get("/admin/invites").status_code == 403
         assert member.put("/admin/settings", json={"key": "k", "value": "v"}).status_code == 403
 
     def test_list_users(self, admin, member):
@@ -252,12 +254,6 @@ class TestAdmin:
         assert all(set(u) == {"id", "username", "role", "created_at"} for u in users)
         assert all("password_hash" not in u for u in users)
         assert all(ISO_RE.match(u["created_at"]) for u in users)
-
-    def test_create_user_rules(self, admin, member):
-        dup = admin.post("/admin/users", json={"username": member.user["username"], "password": "abcdef"})
-        assert dup.status_code == 400 and dup.json() == {"detail": "Username già esistente"}
-        bad = admin.post("/admin/users", json={"username": "t_x_role", "password": "abcdef", "role": "boss"})
-        assert bad.status_code == 400 and bad.json() == {"detail": "Ruolo non valido"}
 
     def test_reset_password(self, admin, member):
         uid = member.user["id"]
@@ -269,14 +265,14 @@ class TestAdmin:
         r = httpx.post(f"{API}/auth/login", json={"username": member.user["username"], "password": member.password}, timeout=60)
         assert r.status_code == 401
 
-    def test_delete_user(self, admin):
-        r = admin.post("/admin/users", json={"username": "t_del_user_x", "password": "abcdef"})
-        if r.status_code == 400:  # residuo di una run interrotta
-            uid = next(u["id"] for u in admin.get("/admin/users").json() if u["username"] == "t_del_user_x")
-        else:
-            uid = r.json()["id"]
+    def test_delete_user(self, admin, made):
+        uid = register_user(admin, made).user["id"]
         assert admin.delete(f"/admin/users/{uid}").status_code == 204
         assert admin.delete(f"/admin/users/{uid}").status_code == 404
+
+    def test_create_user_endpoint_removed(self, admin):
+        r = admin.post("/admin/users", json={"username": "t_x", "password": "abcdef"})
+        assert r.status_code == 405
 
     def test_cannot_delete_self(self, admin):
         r = admin.delete(f"/admin/users/{admin.user['id']}")

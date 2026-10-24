@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Music2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
@@ -16,8 +16,8 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(username, password)
-      navigate('/')
+      const u = await login(username, password)
+      navigate(u.must_change_password ? '/profile' : '/')
     } catch (err) {
       setError(err.response?.data?.detail || 'Errore di accesso')
     } finally {
@@ -74,6 +74,12 @@ export default function Login() {
             {loading ? 'Accesso...' : 'Accedi'}
           </button>
         </form>
+
+        <p className="text-center mt-6">
+          <Link to="/forgot" className="text-sm text-gray-400 hover:text-brand-400">
+            Password dimenticata?
+          </Link>
+        </p>
       </div>
     </div>
   )

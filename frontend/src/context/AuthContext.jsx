@@ -13,12 +13,21 @@ export function AuthProvider({ children }) {
     }
   })
 
+  // Salva token e utente restituiti dalle API di accesso (login, registrazione, cambio password)
+  function applySession(token, nextUser) {
+    if (token) localStorage.setItem('band_token', token)
+    localStorage.setItem('band_user', JSON.stringify(nextUser))
+    setUser(nextUser)
+    return nextUser
+  }
+
   async function login(username, password) {
     const { data } = await client.post('/auth/login', { username, password })
-    localStorage.setItem('band_token', data.token)
-    localStorage.setItem('band_user', JSON.stringify(data.user))
-    setUser(data.user)
-    return data.user
+    return applySession(data.token, data.user)
+  }
+
+  function updateUser(nextUser) {
+    applySession(null, nextUser)
   }
 
   function logout() {
@@ -32,7 +41,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAdmin }}>
+    <AuthContext.Provider value={{ user, login, applySession, updateUser, logout, isAdmin }}>
       {children}
     </AuthContext.Provider>
   )

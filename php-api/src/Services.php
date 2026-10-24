@@ -223,3 +223,28 @@ final class Songsterr
         return "https://www.songsterr.com/?pattern=$q";
     }
 }
+
+/** Invio email con mail() (mittente da config.php: mail_from). */
+final class Mailer
+{
+    public static function send(string $to, string $subject, string $body): bool
+    {
+        $from = Config::get('mail_from');
+        if ($from === '') {
+            $from = 'Band Manager <noreply@motorn.it>';
+        }
+        $headers = implode("
+", [
+            'From: ' . $from,
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=UTF-8',
+            'Content-Transfer-Encoding: 8bit',
+        ]);
+        $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+        $ok = @mail($to, $encodedSubject, $body, $headers);
+        if (!$ok) {
+            Http::log("Mailer: invio fallito verso $to");
+        }
+        return $ok;
+    }
+}
