@@ -22,7 +22,7 @@ Both servers must run together for local development. The Vite proxy in `vite.co
 
 ## Produzione: hosting Aruba (PHP + SQLite)
 
-L'app gira su **`https://www.motorn.it/band/`** (`band.motorn.it` è un redirect 301 creato dal pannello Aruba: un record A + host rewrite non funziona, Aruba instrada per host e il certificato non copre il sottodominio). Hosting Linux condiviso: solo PHP 8.5 (CGI/FastCGI), nessun RDBMS, accesso solo FTP. Il backend FastAPI (`backend/`) è la versione originale (RPi); quello in produzione è la riscrittura PHP in **`php-api/`**, con le stesse API, lo stesso schema SQLite e gli stessi hash bcrypt.
+L'app gira su **`https://www.motorn.it/band/`** (`band.motorn.it` è un redirect 301 creato dal pannello Aruba: un record A + host rewrite non funziona, Aruba instrada per host e il certificato non copre il sottodominio). Hosting Linux condiviso: solo PHP 8.5 (CGI/FastCGI), nessun RDBMS, accesso solo FTP. Il backend FastAPI (`backend/`) è la versione originale (RPi), **legacy e non più mantenuta**; quello in produzione è la riscrittura PHP in **`php-api/`**, con le stesse API, lo stesso schema SQLite e gli stessi hash bcrypt.
 
 - **Struttura sul server** (`/www.motorn.it/band/` via FTP): `index.html`+`assets/` (build), `.htaccess` (da `frontend/public/.htaccess`), `api/` (da `php-api/`), `api/config.php` (SECRET_KEY, creato dal deploy, mai sovrascritto), `api/data/` (DB `band_manager.db` e `error.log`, protetti da `Require all denied`). Nella radice di `www.motorn.it` non c'è nulla del progetto: ogni servizio ha la sua sottocartella.
 - **Credenziali FTP:** `deploy/.ftp.env` (non versionato; modello `deploy/.ftp.env.example`).
@@ -56,7 +56,9 @@ bash tests/frontend/check_base.sh /band/
 
 L'ambiente `band-test` ha un DB vuoto (seed `admin`/`admin123`). Per i test sul PHP non c'è PHP in locale: si deploya su `band-test` e si lancia pytest da lì.
 
-## Deploy to RPi4 (versione originale, da dismettere)
+## Deploy to RPi4 (LEGACY — non più mantenuto)
+
+> Dal 2026-10-24 si mantiene solo la produzione su Aruba. `backend/` (FastAPI) e questo deploy non vanno aggiornati né usati, salvo richiesta esplicita; restano come riferimento storico.
 
 - **SSH key:** `~/.ssh/rpi_strava` | **Host:** `szz@192.168.1.20` | **Path:** `/home/szz/Documents/progetti/band/`
 - **Public URL:** `https://homeszz.ddns.net/band/`
