@@ -4,6 +4,7 @@ import { ArrowLeft, ExternalLink, Guitar, Music, Pencil, RefreshCw, Youtube } fr
 import client from '../api/client'
 import LikeButton from '../components/LikeButton'
 import CommentSection from '../components/CommentSection'
+import SongMedia from '../components/SongMedia'
 
 const CATEGORY_LABELS = {
   proposta: 'Proposta',
@@ -158,6 +159,9 @@ export default function SongDetail() {
           )}
         </div>
       )}
+
+      {/* Video e audio delle prove */}
+      <SongMedia songId={id} />
 
       {/* Re-enrich */}
       <div className="px-4 mb-4">

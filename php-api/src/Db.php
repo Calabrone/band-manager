@@ -94,14 +94,14 @@ final class Db
 
     private static function init(PDO $pdo): void
     {
-        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 2) {
+        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 3) {
             return;
         }
         $pdo->exec('BEGIN IMMEDIATE');
         try {
             // Un'altra richiesta puo' aver inizializzato mentre aspettavamo il lock.
             $version = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-            if ($version >= 2) {
+            if ($version >= 3) {
                 $pdo->exec('COMMIT');
                 return;
             }
@@ -117,8 +117,11 @@ final class Db
                 }
                 self::seed($pdo);
             }
-            self::migrateV2($pdo);
-            $pdo->exec('PRAGMA user_version=2');
+            if ($version < 2) {
+                self::migrateV2($pdo);
+            }
+            self::migrateV3($pdo);
+            $pdo->exec('PRAGMA user_version=3');
             $pdo->exec('COMMIT');
         } catch (Throwable $e) {
             $pdo->exec('ROLLBACK');
@@ -149,6 +152,27 @@ final class Db
                 created_by_admin_id INTEGER)',
             'CREATE TABLE IF NOT EXISTS rate_hit (id INTEGER PRIMARY KEY, bucket VARCHAR NOT NULL, ts INTEGER NOT NULL)',
             'CREATE INDEX IF NOT EXISTS ix_rate_hit_bucket ON rate_hit (bucket, ts)',
+        ] as $ddl) {
+            $pdo->exec($ddl);
+        }
+    }
+
+    /** Video e audio delle prove collegati ai brani. */
+    private static function migrateV3(PDO $pdo): void
+    {
+        foreach ([
+            'CREATE TABLE IF NOT EXISTS song_video (
+                id INTEGER PRIMARY KEY, song_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                url VARCHAR NOT NULL, title VARCHAR NOT NULL, recorded_on VARCHAR NOT NULL,
+                note VARCHAR, thumb_url VARCHAR, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)',
+            'CREATE INDEX IF NOT EXISTS ix_song_video_song ON song_video (song_id)',
+            'CREATE TABLE IF NOT EXISTS song_audio (
+                id INTEGER PRIMARY KEY, song_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                title VARCHAR NOT NULL, recorded_on VARCHAR NOT NULL, note VARCHAR,
+                original_name VARCHAR NOT NULL, stored_name VARCHAR NOT NULL UNIQUE,
+                ext VARCHAR NOT NULL, mime VARCHAR NOT NULL, size INTEGER NOT NULL,
+                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)',
+            'CREATE INDEX IF NOT EXISTS ix_song_audio_song ON song_audio (song_id)',
         ] as $ddl) {
             $pdo->exec($ddl);
         }

@@ -63,6 +63,24 @@ final class Http
         return $out;
     }
 
+    /** Campi testuali di un form multipart ($_POST): stessa convenzione di body() ('string' o '?string'). */
+    public static function form(array $fields): array
+    {
+        $out = [];
+        foreach ($fields as $name => $type) {
+            $v = $_POST[$name] ?? null;
+            if ($v === null) {
+                if ($type[0] !== '?') {
+                    self::fail(422, "Campo obbligatorio mancante: $name");
+                }
+            } elseif (!is_string($v)) {
+                self::fail(422, "Tipo non valido per il campo: $name");
+            }
+            $out[$name] = $v;
+        }
+        return $out;
+    }
+
     /** Token JWT da Authorization: Bearer, con fallback su X-Auth-Token (CGI/FastCGI puo' scartare Authorization). */
     public static function bearerToken(): ?string
     {

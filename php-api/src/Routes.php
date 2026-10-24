@@ -38,6 +38,19 @@ final class Routes
             ['GET', '#^/songs/(?<id>\d+)/likes$#', 'getLikes', 'user'],
             ['POST', '#^/songs/(?<id>\d+)/likes$#', 'toggleLike', 'user'],
 
+            ['GET', '#^/songs/(?<id>\d+)/videos$#', 'listVideos', 'user'],
+            ['POST', '#^/songs/(?<id>\d+)/videos$#', 'createVideo', 'user'],
+            ['PUT', '#^/songs/(?<id>\d+)/videos/(?<vid>\d+)$#', 'updateVideo', 'user'],
+            ['DELETE', '#^/songs/(?<id>\d+)/videos/(?<vid>\d+)$#', 'deleteVideo', 'user'],
+            ['POST', '#^/media/preview$#', 'mediaPreview', 'user'],
+
+            ['GET', '#^/songs/(?<id>\d+)/audios$#', 'listAudios', 'user'],
+            ['POST', '#^/songs/(?<id>\d+)/audios$#', 'createAudio', 'user'],
+            ['PUT', '#^/songs/(?<id>\d+)/audios/(?<aid>\d+)$#', 'updateAudio', 'user'],
+            ['DELETE', '#^/songs/(?<id>\d+)/audios/(?<aid>\d+)$#', 'deleteAudio', 'user'],
+            // Accesso 'none': <audio> e il download non possono mandare Authorization, vale la firma in query
+            ['GET', '#^/songs/(?<id>\d+)/audios/(?<aid>\d+)/file$#', 'audioFile', 'none'],
+
             ['GET', '#^/admin/users$#', 'adminListUsers', 'admin'],
             ['PUT', '#^/admin/users/(?<uid>\d+)/password$#', 'adminResetPassword', 'admin'],
             ['POST', '#^/admin/users/(?<uid>\d+)/reset-link$#', 'adminResetLink', 'admin'],
@@ -215,7 +228,10 @@ final class Routes
 
     private static function config(array $p, array $user): void
     {
-        Http::send(['chords_enabled' => Settings::get('chords_enabled') === 'true']);
+        Http::send([
+            'chords_enabled' => Settings::get('chords_enabled') === 'true',
+            'max_upload_bytes' => Media::maxUploadBytes(),
+        ]);
     }
 
     private static function login(array $p, ?array $user): void
@@ -489,6 +505,11 @@ final class Routes
         self::song($p['id']);
         Db::exec('DELETE FROM comment WHERE song_id = ?', [$p['id']]);
         Db::exec('DELETE FROM songlike WHERE song_id = ?', [$p['id']]);
+        Db::exec('DELETE FROM song_video WHERE song_id = ?', [$p['id']]);
+        foreach (Db::all('SELECT stored_name FROM song_audio WHERE song_id = ?', [$p['id']]) as $a) {
+            @unlink(Media::audioPath($a['stored_name']));
+        }
+        Db::exec('DELETE FROM song_audio WHERE song_id = ?', [$p['id']]);
         Db::exec('DELETE FROM song WHERE id = ?', [$p['id']]);
         Http::send(null, 204);
     }
@@ -618,6 +639,237 @@ final class Routes
             Db::exec('INSERT INTO songlike (song_id, user_id) VALUES (?, ?)', [$p['id'], $user['id']]);
         }
         Http::send(self::likesOut($p['id'], (int)$user['id'], $existing === null));
+    }
+
+    // ── Video e audio delle prove ────────────────────────────────────────────
+
+    private static function videoOut(array $v): array
+    {
+        return [
+            'id' => (int)$v['id'],
+            'song_id' => (int)$v['song_id'],
+            'user_id' => (int)$v['user_id'],
+            'username' => self::username((int)$v['user_id']),
+            'url' => $v['url'],
+            'title' => $v['title'],
+            'recorded_on' => $v['recorded_on'],
+            'note' => $v['note'],
+            'thumb_url' => $v['thumb_url'],
+            'created_at' => Db::iso($v['created_at']),
+            'updated_at' => Db::iso($v['updated_at']),
+        ];
+    }
+
+    private static function audioOut(array $a): array
+    {
+        [$exp, $sig] = Media::sign((int)$a['id']);
+        return [
+            'id' => (int)$a['id'],
+            'song_id' => (int)$a['song_id'],
+            'user_id' => (int)$a['user_id'],
+            'username' => self::username((int)$a['user_id']),
+            'title' => $a['title'],
+            'recorded_on' => $a['recorded_on'],
+            'note' => $a['note'],
+            'original_name' => $a['original_name'],
+            'mime' => Media::AUDIO_TYPES[$a['ext']] ?? 'application/octet-stream',
+            'size' => (int)$a['size'],
+            'file_url' => self::appUrl() . "/api/songs/{$a['song_id']}/audios/{$a['id']}/file?e=$exp&s=$sig",
+            'created_at' => Db::iso($a['created_at']),
+            'updated_at' => Db::iso($a['updated_at']),
+        ];
+    }
+
+    /** Solo chi ha caricato il contenuto lo modifica o elimina (nemmeno l'admin). */
+    private static function requireOwner(array $row, array $user): void
+    {
+        if ((int)$row['user_id'] !== (int)$user['id']) {
+            Http::fail(403, 'Puoi modificare solo i tuoi contenuti');
+        }
+    }
+
+    private static function video(array $p): array
+    {
+        $v = Db::one('SELECT * FROM song_video WHERE id = ? AND song_id = ?', [$p['vid'], $p['id']]);
+        if ($v === null) {
+            Http::fail(404, 'Video non trovato');
+        }
+        return $v;
+    }
+
+    private static function audio(array $p): array
+    {
+        $a = Db::one('SELECT * FROM song_audio WHERE id = ? AND song_id = ?', [$p['aid'], $p['id']]);
+        if ($a === null) {
+            Http::fail(404, 'Audio non trovato');
+        }
+        return $a;
+    }
+
+    private static function listVideos(array $p, array $user): void
+    {
+        self::song($p['id']);
+        $rows = Db::all('SELECT * FROM song_video WHERE song_id = ? ORDER BY recorded_on DESC, id DESC', [$p['id']]);
+        Http::send(array_map([self::class, 'videoOut'], $rows));
+    }
+
+    private static function createVideo(array $p, array $user): void
+    {
+        $b = Http::body(['url' => 'string', 'title' => 'string', 'recorded_on' => 'string', 'note' => '?string', 'thumb_url' => '?string']);
+        self::song($p['id']);
+        $url = Media::checkUrl($b['url']);
+        $title = Media::checkTitle($b['title']);
+        $date = Media::checkDate($b['recorded_on']);
+        $note = Media::checkNote($b['note']);
+        // La miniatura e' solo un suggerimento: se non e' un https valido si ignora
+        $thumb = $b['thumb_url'] !== null ? trim($b['thumb_url']) : null;
+        if ($thumb !== null && (!str_starts_with(strtolower($thumb), 'https://') || mb_strlen($thumb) > Media::URL_MAX)) {
+            $thumb = null;
+        }
+        $now = Db::now();
+        $id = Db::insert(
+            'INSERT INTO song_video (song_id, user_id, url, title, recorded_on, note, thumb_url, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [$p['id'], $user['id'], $url, $title, $date, $note, $thumb, $now, $now]
+        );
+        Http::send(self::videoOut(Db::one('SELECT * FROM song_video WHERE id = ?', [$id])), 201);
+    }
+
+    private static function updateVideo(array $p, array $user): void
+    {
+        $b = Http::body(['title' => '?string', 'recorded_on' => '?string', 'note' => '?string']);
+        $v = self::video($p);
+        self::requireOwner($v, $user);
+        $title = $b['title'] !== null ? Media::checkTitle($b['title']) : $v['title'];
+        $date = $b['recorded_on'] !== null ? Media::checkDate($b['recorded_on']) : $v['recorded_on'];
+        $note = $b['note'] !== null ? Media::checkNote($b['note']) : $v['note'];
+        Db::exec(
+            'UPDATE song_video SET title = ?, recorded_on = ?, note = ?, updated_at = ? WHERE id = ?',
+            [$title, $date, $note, Db::now(), $v['id']]
+        );
+        Http::send(self::videoOut(Db::one('SELECT * FROM song_video WHERE id = ?', [$v['id']])));
+    }
+
+    private static function deleteVideo(array $p, array $user): void
+    {
+        $v = self::video($p);
+        self::requireOwner($v, $user);
+        Db::exec('DELETE FROM song_video WHERE id = ?', [$v['id']]);
+        Http::send(null, 204);
+    }
+
+    /** Anteprima best effort di un link: qualunque problema di rete da' valori null, non un errore. */
+    private static function mediaPreview(array $p, array $user): void
+    {
+        $b = Http::body(['url' => 'string']);
+        $url = Media::checkUrl($b['url']);
+        if (RateLimit::tooMany('preview', 30, 600)) {
+            Http::fail(429, 'Troppe richieste, riprova tra qualche minuto');
+        }
+        RateLimit::hit('preview');
+        set_time_limit(40);
+        Http::send(LinkPreview::fetch($url));
+    }
+
+    private static function listAudios(array $p, array $user): void
+    {
+        self::song($p['id']);
+        $rows = Db::all('SELECT * FROM song_audio WHERE song_id = ? ORDER BY recorded_on DESC, id DESC', [$p['id']]);
+        Http::send(array_map([self::class, 'audioOut'], $rows));
+    }
+
+    private static function createAudio(array $p, array $user): void
+    {
+        ignore_user_abort(true);
+        set_time_limit(300);
+        self::song($p['id']);
+        $max = Media::maxUploadBytes();
+        $tooBig = 'File troppo grande' . ($max > 0 ? ' (max ' . (int)floor($max / 1048576) . ' MB)' : '');
+        // post_max_size superato: PHP scarta tutto e lascia $_POST e $_FILES vuoti
+        if ($_FILES === [] && $_POST === [] && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+            Http::fail(413, $tooBig);
+        }
+        $f = $_FILES['file'] ?? null;
+        if (!is_array($f) || is_array($f['name'] ?? null)) {
+            Http::fail(422, 'Campo obbligatorio mancante: file');
+        }
+        if (in_array($f['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+            Http::fail(413, $tooBig);
+        }
+        if ($f['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) {
+            Http::fail(400, 'Upload non riuscito, riprova');
+        }
+        $b = Http::form(['title' => 'string', 'recorded_on' => 'string', 'note' => '?string']);
+        $title = Media::checkTitle($b['title']);
+        $date = Media::checkDate($b['recorded_on']);
+        $note = Media::checkNote($b['note']);
+
+        $original = (string)preg_replace('/[\x00-\x1F\x7F]+/u', '', basename(str_replace('\\', '/', (string)$f['name'])));
+        $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+        if (!isset(Media::AUDIO_TYPES[$ext])) {
+            Http::fail(400, 'Formato non supportato (ammessi: ' . implode(', ', array_keys(Media::AUDIO_TYPES)) . ')');
+        }
+        $size = (int)$f['size'];
+        if ($size <= 0) {
+            Http::fail(400, 'Il file è vuoto');
+        }
+
+        $dir = Media::audioDir();
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            Http::fail(500, 'Cartella audio non disponibile');
+        }
+        $stored = bin2hex(random_bytes(16));   // nessuna estensione: il file non e' mai eseguibile
+        if (!move_uploaded_file($f['tmp_name'], Media::audioPath($stored))) {
+            Http::fail(500, 'Salvataggio del file non riuscito');
+        }
+        $now = Db::now();
+        try {
+            $id = Db::insert(
+                'INSERT INTO song_audio (song_id, user_id, title, recorded_on, note, original_name, stored_name, ext, mime, size, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [$p['id'], $user['id'], $title, $date, $note, mb_substr($original, 0, 200), $stored, $ext, Media::AUDIO_TYPES[$ext], $size, $now, $now]
+            );
+        } catch (Throwable $e) {
+            @unlink(Media::audioPath($stored));
+            throw $e;
+        }
+        Http::send(self::audioOut(Db::one('SELECT * FROM song_audio WHERE id = ?', [$id])), 201);
+    }
+
+    private static function updateAudio(array $p, array $user): void
+    {
+        $b = Http::body(['title' => '?string', 'recorded_on' => '?string', 'note' => '?string']);
+        $a = self::audio($p);
+        self::requireOwner($a, $user);
+        $title = $b['title'] !== null ? Media::checkTitle($b['title']) : $a['title'];
+        $date = $b['recorded_on'] !== null ? Media::checkDate($b['recorded_on']) : $a['recorded_on'];
+        $note = $b['note'] !== null ? Media::checkNote($b['note']) : $a['note'];
+        Db::exec(
+            'UPDATE song_audio SET title = ?, recorded_on = ?, note = ?, updated_at = ? WHERE id = ?',
+            [$title, $date, $note, Db::now(), $a['id']]
+        );
+        Http::send(self::audioOut(Db::one('SELECT * FROM song_audio WHERE id = ?', [$a['id']])));
+    }
+
+    private static function deleteAudio(array $p, array $user): void
+    {
+        $a = self::audio($p);
+        self::requireOwner($a, $user);
+        Db::exec('DELETE FROM song_audio WHERE id = ?', [$a['id']]);
+        @unlink(Media::audioPath($a['stored_name']));
+        Http::send(null, 204);
+    }
+
+    private static function audioFile(array $p, ?array $user): void
+    {
+        $a = Db::one('SELECT * FROM song_audio WHERE id = ? AND song_id = ?', [$p['aid'], $p['id']]);
+        if ($a === null) {
+            Http::fail(404, 'Audio non trovato');
+        }
+        if (!Media::verify($p['aid'], $_GET['e'] ?? null, $_GET['s'] ?? null)) {
+            Http::fail(403, 'Link non valido o scaduto');
+        }
+        Media::stream($a, ($_GET['dl'] ?? '') === '1');
     }
 
     // ── Admin ────────────────────────────────────────────────────────────────

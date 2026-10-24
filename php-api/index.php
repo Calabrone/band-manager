@@ -4,7 +4,7 @@ declare(strict_types=1);
 // Front controller dell'API: .htaccess instrada qui tutto /api/*.
 ini_set('display_errors', '0');
 
-foreach (['Http', 'Db', 'Auth', 'Services', 'Enrich', 'Routes'] as $file) {
+foreach (['Http', 'Db', 'Auth', 'Services', 'Media', 'Enrich', 'Routes'] as $file) {
     require __DIR__ . "/src/$file.php";
 }
 

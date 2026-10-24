@@ -147,6 +147,14 @@ DELETE /api/songs/{id}/comments/{cid}
 GET  /api/songs/{id}/likes              → { count, liked: bool }
 POST /api/songs/{id}/likes              → toggles like
 
+GET/POST /api/songs/{id}/videos         → link video prove (GoPro): { url, title, recorded_on, note?, thumb_url? }
+PUT/DELETE /api/songs/{id}/videos/{vid} → solo chi l'ha inserito (nemmeno l'admin)
+POST /api/media/preview                 → { url } → { title, image } (Open Graph, best effort; mai verso IP interni)
+GET  /api/songs/{id}/audios             → audio prove, con file_url firmato (HMAC, 6 h)
+POST /api/songs/{id}/audios             → multipart: file, title, recorded_on, note? (mp3 m4a aac wav ogg oga opus flac amr 3gp 3gpp caf webm mp4)
+PUT/DELETE /api/songs/{id}/audios/{aid} → solo chi l'ha caricato
+GET  /api/songs/{id}/audios/{aid}/file?e=&s=[&dl=1] → stream con Range (206/416); firma in query perché <audio> non manda Authorization
+
 GET  /api/admin/users
 PUT  /api/admin/users/{id}/password     → admin resets any user's password
 POST /api/admin/users/{id}/reset-link   → { url, expires_at } link di reset (1 h) da mandare in chat
@@ -161,6 +169,10 @@ PUT  /api/admin/settings
 #### Accesso su invito (solo PHP/Aruba)
 
 Non c'è registrazione libera né creazione utenti con password dell'admin: l'admin genera un link `/invite/<token>` (QR incluso) da Admin → Utenti, il membro sceglie username, email e password. Token (invito e reset) = 256 bit casuali, a DB solo lo SHA-256 (`invite`, `password_reset`); scadenza, monouso, revocabili. `user.token_version` finisce nel claim `tv` del JWT: cambio/reset password invalida le sessioni precedenti. `user.must_change_password` blocca ogni route tranne `/auth/me` e `/auth/password` finché l'admin con password `admin123` non la cambia. Rate limit per IP su login e forgot (tabella `rate_hit`). Email con `mail()` (mittente `mail_from` in `config.php`, default `noreply@motorn.it`; `app_url` opzionale, altrimenti dedotto dalla richiesta); se `mail()` non consegna, resta il link di reset generato dall'admin. Schema v2 (`PRAGMA user_version=2`).
+
+#### Video e audio delle prove (solo PHP/Aruba)
+
+Schema v3 (`PRAGMA user_version=3`): tabelle `song_video` e `song_audio`. I file audio stanno in `api/data/audio/` con nome casuale senza estensione (protetta da `data/.htaccess`, servita solo da `Media::stream`); il tipo si decide dall'estensione (whitelist in `Media::AUDIO_TYPES`), nessuna conversione. Limiti upload su Aruba misurati: 128 MB (`GET /config` → `max_upload_bytes`). `LinkPreview` (in `Media.php`) risolve l'host, rifiuta IP privati/riservati e porte diverse da 80/443, segue max 3 redirect a mano. Frontend: `components/SongMedia.jsx`. Spec: `.kiro/specs/rehearsal-media/`. Test: `tests/api/test_media.py`.
 
 #### API key storage
 
