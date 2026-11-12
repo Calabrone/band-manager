@@ -29,6 +29,8 @@ final class Routes
             ['DELETE', '#^/songs/(?<id>\d+)$#', 'deleteSong', 'user'],
             ['PUT', '#^/songs/(?<id>\d+)/category$#', 'changeCategory', 'user'],
             ['POST', '#^/songs/(?<id>\d+)/enrich$#', 'enrichSong', 'user'],
+            ['PUT', '#^/songs/(?<id>\d+)/lyrics$#', 'updateLyrics', 'user'],
+            ['POST', '#^/songs/(?<id>\d+)/lyrics/ocr$#', 'ocrLyrics', 'user'],
 
             ['GET', '#^/songs/(?<id>\d+)/comments$#', 'listComments', 'user'],
             ['POST', '#^/songs/(?<id>\d+)/comments$#', 'createComment', 'user'],
@@ -200,6 +202,7 @@ final class Routes
             'validated' => (bool)(int)$s['validated'],
             'validation_error' => $s['validation_error'],
             'lyrics' => $s['lyrics'],
+            'lyrics_source' => $s['lyrics_source'] ?? null,
             'chords_url' => $s['chords_url'],
             'chords_text' => $s['chords_text'],
             'youtube_url' => $s['youtube_url'],
@@ -249,6 +252,7 @@ final class Routes
         Http::send([
             'chords_enabled' => Settings::get('chords_enabled') === 'true',
             'max_upload_bytes' => Media::maxUploadBytes(),
+            'ocr_available' => Settings::get('groq_api_key') !== '',
         ]);
     }
 
@@ -559,6 +563,94 @@ final class Routes
         Db::exec('UPDATE song SET validated = 0, validation_error = NULL WHERE id = ?', [$p['id']]);
         Enrich::run($p['id']);
         Http::send(['detail' => 'Enrichment completato']);
+    }
+
+    // ── Testo (manuale e OCR) ────────────────────────────────────────────────
+
+    private const LYRICS_MAX = 30000;
+    private const OCR_MAX_BYTES = 4194304;
+    private const OCR_TYPES = [IMAGETYPE_JPEG => 'image/jpeg', IMAGETYPE_PNG => 'image/png', IMAGETYPE_WEBP => 'image/webp'];
+
+    /** Fine riga uniformi, niente spazi in coda alle righe ne' righe vuote ai bordi. */
+    private static function cleanLyrics(string $text): string
+    {
+        $text = str_replace(["\r\n", "\r"], "\n", $text);
+        $text = (string)preg_replace('/[ \t]+$/m', '', $text);
+        return trim($text, "\n");
+    }
+
+    /**
+     * Salva il testo scritto a mano (accordi in linea tra quadre, formato ChordPro): da qui in poi
+     * l'arricchimento non lo tocca. Testo vuoto = brano di nuovo senza testo, riempibile in automatico.
+     */
+    private static function updateLyrics(array $p, array $user): void
+    {
+        $b = Http::body(['lyrics' => 'string']);
+        self::song($p['id']);
+        $lyrics = self::cleanLyrics($b['lyrics']);
+        if (mb_strlen($lyrics) > self::LYRICS_MAX) {
+            Http::fail(400, 'Testo troppo lungo (max ' . self::LYRICS_MAX . ' caratteri)');
+        }
+        $empty = trim($lyrics) === '';
+        Db::exec(
+            'UPDATE song SET lyrics = ?, lyrics_source = ?, last_modified_by_id = ?, updated_at = ? WHERE id = ?',
+            [$empty ? null : $lyrics, $empty ? null : 'manual', $user['id'], Db::now(), $p['id']]
+        );
+        Http::send(self::songOut(self::song($p['id'])));
+    }
+
+    /** Legge testo e accordi da una foto con un modello di visione Groq. Non salva nulla: decide l'editor. */
+    private static function ocrLyrics(array $p, array $user): void
+    {
+        set_time_limit(90);
+        self::song($p['id']);
+        $tooBig = 'Immagine troppo grande (max ' . (int)(self::OCR_MAX_BYTES / 1048576) . ' MB)';
+        if ($_FILES === [] && $_POST === [] && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+            Http::fail(413, $tooBig);
+        }
+        $f = $_FILES['image'] ?? null;
+        if (!is_array($f) || is_array($f['name'] ?? null)) {
+            Http::fail(422, 'Campo obbligatorio mancante: image');
+        }
+        if (in_array($f['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) || (int)$f['size'] > self::OCR_MAX_BYTES) {
+            Http::fail(413, $tooBig);
+        }
+        if ($f['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) {
+            Http::fail(400, 'Upload non riuscito, riprova');
+        }
+        // Tipo deciso dai byte, non dall'estensione
+        $info = @getimagesize($f['tmp_name']);
+        $mime = is_array($info) ? (self::OCR_TYPES[$info[2]] ?? null) : null;
+        if ($mime === null) {
+            Http::fail(400, 'Formato non supportato (ammessi: JPEG, PNG, WebP)');
+        }
+        if (RateLimit::tooMany('ocr', 20, 600)) {
+            Http::fail(429, 'Troppe scansioni, riprova tra qualche minuto');
+        }
+        $key = Settings::get('groq_api_key');
+        if ($key === '') {
+            Http::fail(400, 'Groq API key non configurata. Impostala dalla pagina Admin.');
+        }
+        RateLimit::hit('ocr');
+        $bytes = file_get_contents($f['tmp_name']);
+        if ($bytes === false || $bytes === '') {
+            Http::fail(400, 'Upload non riuscito, riprova');
+        }
+        $model = Settings::get('groq_vision_model');
+        try {
+            $text = Groq::ocrLyrics($bytes, $mime, $key, $model !== '' ? $model : Groq::VISION_MODEL);
+        } catch (Throwable $e) {
+            Http::log('OCR: ' . $e->getMessage());
+            Http::fail(502, 'Scansione non riuscita: ' . mb_substr($e->getMessage(), 0, 300));
+        }
+        $text = self::cleanLyrics($text);
+        if ($text === '' || stripos($text, 'NESSUN_TESTO') !== false) {
+            Http::fail(422, "Nessun testo riconosciuto nell'immagine");
+        }
+        Http::send([
+            'text' => mb_substr($text, 0, self::LYRICS_MAX),
+            'has_chords' => preg_match('/\[[A-G][#b]?[^\[\]\s]{0,8}\]/', $text) === 1,
+        ]);
     }
 
     // ── Commenti ─────────────────────────────────────────────────────────────

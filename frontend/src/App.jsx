@@ -7,6 +7,7 @@ import ResetPassword from './pages/ResetPassword'
 import Songs from './pages/Songs'
 import SongDetail from './pages/SongDetail'
 import AddEditSong from './pages/AddEditSong'
+import LyricsEdit from './pages/LyricsEdit'
 import Admin from './pages/Admin'
 import Profile from './pages/Profile'
 
@@ -33,6 +34,7 @@ function AppRoutes() {
       <Route path="/songs/:id" element={<ProtectedRoute><SongDetail /></ProtectedRoute>} />
       <Route path="/add" element={<ProtectedRoute><AddEditSong /></ProtectedRoute>} />
       <Route path="/songs/:id/edit" element={<ProtectedRoute><AddEditSong /></ProtectedRoute>} />
+      <Route path="/songs/:id/lyrics" element={<ProtectedRoute><LyricsEdit /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />

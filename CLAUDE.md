@@ -50,6 +50,8 @@ Il deploy non tocca mai `api/config.php` né `api/data/*` (tranne `data/.htacces
 # API (pytest + httpx) contro l'ambiente di prova; non lanciarli sul DB di produzione
 pip install pytest httpx
 cd tests/api && API_BASE_URL=https://www.motorn.it/band-test/api ADMIN_PASSWORD=... pytest -q    # ADMIN_USER se diverso da admin
+# Frontend: formato accordi (nessuna dipendenza, Node >= 20)
+node --test tests/frontend/chordpro.test.mjs
 # Frontend: controlla base path in index.html, manifest, service worker
 bash tests/frontend/check_base.sh /band/
 ```
@@ -138,6 +140,8 @@ PUT  /api/songs/{id}
 DELETE /api/songs/{id}
 PUT  /api/songs/{id}/category
 POST /api/songs/{id}/enrich             → re-triggers enrichment manually
+PUT  /api/songs/{id}/lyrics             → { lyrics } testo a mano con accordi in linea (max 30000); "" lo svuota; lyrics_source = manual
+POST /api/songs/{id}/lyrics/ocr         → multipart image (JPEG/PNG/WebP, max 4 MB) → { text, has_chords }; non salva
 
 GET  /api/songs/{id}/comments
 POST /api/songs/{id}/comments           → body: { content, parent_id? }
@@ -174,6 +178,10 @@ Non c'è registrazione libera né creazione utenti con password dell'admin: l'ad
 
 Schema v3 (`PRAGMA user_version=3`): tabelle `song_video` e `song_audio`. I file audio stanno in `api/data/audio/` con nome casuale senza estensione (protetta da `data/.htaccess`, servita solo da `Media::stream`); il tipo si decide dall'estensione (whitelist in `Media::AUDIO_TYPES`), nessuna conversione. Limiti upload su Aruba misurati: 128 MB (`GET /config` → `max_upload_bytes`). `LinkPreview` (in `Media.php`) risolve l'host, rifiuta IP privati/riservati e porte diverse da 80/443, segue max 3 redirect a mano. Frontend: `components/SongMedia.jsx`. Spec: `.kiro/specs/rehearsal-media/`. Test: `tests/api/test_media.py`.
 
+#### Testo a scorrimento, accordi sul testo, OCR (solo PHP/Aruba)
+
+Schema v4 (`PRAGMA user_version=4`): `song.lyrics_source` (`NULL` = automatico da lyrics.ovh, `manual` = scritto a mano o da OCR). Gli accordi manuali stanno **dentro `song.lyrics`** in formato ChordPro in linea (`[Am]Quando sei [G]qui`, sezioni su riga propria `[Ritornello]`), sempre in notazione anglosassone; si vedono a prescindere da `chords_enabled`, che governa solo `chords_text` (AI) e la tablatura. `Enrich::run` non tocca un testo `manual` e non cancella un testo esistente se lyrics.ovh non risponde. OCR: `Groq::ocrLyrics` con modello di visione `Groq::VISION_MODEL` (`qwen/qwen3.8-27b`), sostituibile da Admin con l'impostazione `groq_vision_model`; l'immagine non viene conservata, rate limit `ocr`. `GET /config` espone `ocr_available`. Frontend: `lib/chordpro.js` (unica fonte del formato: parse, `setChord`, conversione dall'italiano, `fromChordSheet` per accordi scritti sulla riga sopra), `components/LyricsView.jsx` (accordi sopra le parole), `components/Teleprompter.jsx` (tutto schermo, velocità in righe/min per brano e caratteri in `localStorage`), `components/ChordPicker.jsx`, `pages/LyricsEdit.jsx` (route `/songs/:id/lyrics`). Spec: `.kiro/specs/lyrics-teleprompter/`. Test: `tests/api/test_lyrics.py`, `node --test tests/frontend/chordpro.test.mjs`.
+
 #### API key storage
 
 `groq_api_key` and `genius_api_key` are **not** in `.env` — they live in `AppSetting` and are set via the Admin UI. Read at runtime with `get_setting(session, key)`. `.env` holds only `SECRET_KEY`.
@@ -203,6 +211,7 @@ Frontend polls `GET /api/songs/{id}` every 2 s until `validated = True`.
 | `/songs/:id` | `SongDetail.jsx` | all |
 | `/add` | `AddEditSong.jsx` | all |
 | `/songs/:id/edit` | `AddEditSong.jsx` | all |
+| `/songs/:id/lyrics` | `LyricsEdit.jsx` | all |
 | `/admin` | `Admin.jsx` | admin only |
 | `/profile` | `Profile.jsx` | all |
 

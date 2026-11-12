@@ -441,6 +441,12 @@ function SettingsTab() {
         settingKey="genius_api_key"
         initialMasked={masked.genius_api_key}
       />
+      <SettingField
+        label="Modello Groq per la scansione dei testi"
+        hint="Modello con visione usato da «Scansiona foto». Se non impostato: qwen/qwen3.8-27b"
+        settingKey="groq_vision_model"
+        initialMasked={masked.groq_vision_model}
+      />
       <p className="text-xs text-gray-500 pt-2 border-t border-gray-800">
         Le chiavi sono salvate sul server e non vengono mai inviate al browser.
       </p>

@@ -82,9 +82,28 @@ Genera lo schema completo per "{title}" di {artist}.
 Se la canzone non è conosciuta con precisione, scrivi: Non disponibile
 T;
 
+    // Modello con visione per l'OCR dei testi: default, sostituibile da Admin (impostazione groq_vision_model).
+    public const VISION_MODEL = 'qwen/qwen3.8-27b';
+
+    private const OCR_PROMPT = <<<'T'
+Nell'immagine c'è il testo di una canzone, forse con gli accordi. Trascrivilo fedelmente.
+
+Regole:
+- Trascrivi il testo riga per riga, esattamente come è scritto, nella lingua originale. Non inventare, non completare, non tradurre, non correggere.
+- Se ci sono accordi, scrivili IN LINEA tra parentesi quadre immediatamente prima della sillaba sopra cui si trovano, senza spazi aggiunti. Esempio: se "Am" sta sopra "sei" e "G" sopra "me" nella riga "Quando sei qui con me", scrivi: Quando [Am]sei qui con [G]me
+- Non scrivere mai righe di soli accordi sopra il testo: ogni accordo va dentro la riga di testo a cui appartiene.
+- Righe senza parole (intro, strumentale) con soli accordi: scrivi gli accordi tra quadre separati da uno spazio, es. [Am] [G] [F] [E]
+- Usa sempre la notazione anglosassone per gli accordi: Do=C, Re=D, Mi=E, Fa=F, Sol=G, La=A, Si=B; minore = "m" (Lam o La- diventa Am); diesis = #, bemolle = b. Esempi: Do7 -> C7, Sol/Si -> G/B, Mim7 -> Em7.
+- Titoli di sezione (Intro, Strofa, Ritornello, Chorus, Bridge...) su una riga propria tra parentesi quadre, es. [Ritornello]
+- Mantieni le righe vuote tra le strofe.
+- Ignora numeri di pagina, intestazioni, piè di pagina, diagrammi degli accordi, tablature, pentagrammi e note a margine.
+- Rispondi SOLO con la trascrizione: niente markdown, niente commenti, niente spiegazioni.
+- Se nell'immagine non c'è testo leggibile di una canzone, rispondi solo: NESSUN_TESTO
+T;
+
     private static function chat(string $key, string $system, string $user, int $maxTokens): string
     {
-        $payload = json_encode([
+        return self::complete($key, [
             'model' => self::MODEL,
             'messages' => [
                 ['role' => 'system', 'content' => $system],
@@ -93,11 +112,40 @@ T;
             'temperature' => 0.1,
             'max_completion_tokens' => $maxTokens,
             'reasoning_effort' => 'low',
-        ], JSON_UNESCAPED_UNICODE);
+        ], 40);
+    }
+
+    /**
+     * Trascrive testo e accordi (ChordPro in linea) da un'immagine. Lancia RuntimeException se Groq fallisce.
+     * reasoning_effort non viene inviato: non tutti i modelli di visione lo accettano.
+     */
+    public static function ocrLyrics(string $imageBytes, string $mime, string $key, string $model): string
+    {
+        $text = self::complete($key, [
+            'model' => $model,
+            'messages' => [[
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => self::OCR_PROMPT],
+                    ['type' => 'image_url', 'image_url' => ['url' => "data:$mime;base64," . base64_encode($imageBytes)]],
+                ],
+            ]],
+            'temperature' => 0,
+            'max_completion_tokens' => 8192,
+        ], 70);
+        // Blocchi di ragionamento e recinti markdown che alcuni modelli aggiungono comunque
+        $text = (string)preg_replace('~<think>.*?</think>~s', '', $text);
+        $text = (string)preg_replace('/^\s*```[a-zA-Z]*\s*\n|\n?```\s*$/', '', trim($text));
+        return trim($text);
+    }
+
+    private static function complete(string $key, array $request, int $timeout): string
+    {
+        $payload = json_encode($request, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         [$status, $body, $err] = Curl::request(
             'POST', self::URL,
             ['Authorization: Bearer ' . $key, 'Content-Type: application/json'],
-            $payload, 40
+            $payload, $timeout
         );
         if ($body === null) {
             throw new RuntimeException($err !== '' ? $err : 'Errore di rete');

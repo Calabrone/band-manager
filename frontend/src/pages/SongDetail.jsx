@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Guitar, Music, Pencil, RefreshCw, Youtube } from 'lucide-react'
+import { ArrowLeft, ExternalLink, FileText, Guitar, Maximize2, Music, Pencil, RefreshCw, Youtube } from 'lucide-react'
 import client from '../api/client'
 import LikeButton from '../components/LikeButton'
 import CommentSection from '../components/CommentSection'
 import SongMedia from '../components/SongMedia'
+import LyricsView from '../components/LyricsView'
+import Teleprompter from '../components/Teleprompter'
 
 const CATEGORY_LABELS = {
   proposta: 'Proposta',
@@ -25,6 +27,7 @@ export default function SongDetail() {
   const [loading, setLoading] = useState(true)
   const [enriching, setEnriching] = useState(false)
   const [chordsEnabled, setChordsEnabled] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -193,14 +196,43 @@ export default function SongDetail() {
       {/* Lyrics */}
       {song.lyrics ? (
         <div className="px-4">
-          <h2 className="text-sm font-semibold text-gray-300 mb-3">Testo</h2>
-          <pre className="whitespace-pre-wrap text-sm text-gray-300 font-sans leading-relaxed">
-            {song.lyrics}
-          </pre>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h2 className="text-sm font-semibold text-gray-300">Testo</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate(`/songs/${id}/lyrics`)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-800 border border-gray-700 text-gray-200 text-xs font-medium"
+              >
+                <FileText className="w-4 h-4" />
+                Modifica testo
+              </button>
+              <button
+                onClick={() => setFullscreen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold"
+              >
+                <Maximize2 className="w-4 h-4" />
+                Schermo intero
+              </button>
+            </div>
+          </div>
+          <LyricsView text={song.lyrics} fontSize={15} className="text-gray-300 font-sans" />
         </div>
-      ) : song.validated ? (
-        <p className="px-4 text-sm text-gray-500 italic">Testo non disponibile</p>
-      ) : null}
+      ) : (
+        <div className="px-4">
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">Testo</h2>
+          <p className="text-sm text-gray-500 italic mb-3">Testo non disponibile</p>
+          <button
+            onClick={() => navigate(`/songs/${id}/lyrics`)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800 border border-gray-700 text-gray-200 text-sm font-medium"
+          >
+            <FileText className="w-4 h-4" />
+            Aggiungi testo
+          </button>
+          <p className="text-xs text-gray-500 mt-2">Puoi scriverlo, incollarlo o leggerlo da una foto.</p>
+        </div>
+      )}
+
+      {fullscreen && song.lyrics && <Teleprompter song={song} onClose={() => setFullscreen(false)} />}
 
       <div className="mt-8 border-t border-gray-800 pt-4 pb-4">
         <CommentSection songId={id} />

@@ -31,7 +31,11 @@ final class Enrich
         $title = $result['title_normalized'];
 
         $cover = Genius::cover($artist, $title, $geniusKey);
-        $lyrics = LyricsOvh::fetch($artist, $title);
+        // Il testo scritto a mano (o da OCR) non si tocca; uno gia' presente non si perde se lyrics.ovh non risponde
+        $lyrics = $song['lyrics'];
+        if (($song['lyrics_source'] ?? null) !== 'manual') {
+            $lyrics = LyricsOvh::fetch($artist, $title) ?? $song['lyrics'];
+        }
 
         $chordsText = $song['chords_text'];
         $chordsUrl = $song['chords_url'];

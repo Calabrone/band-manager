@@ -94,14 +94,14 @@ final class Db
 
     private static function init(PDO $pdo): void
     {
-        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 3) {
+        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 4) {
             return;
         }
         $pdo->exec('BEGIN IMMEDIATE');
         try {
             // Un'altra richiesta puo' aver inizializzato mentre aspettavamo il lock.
             $version = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-            if ($version >= 3) {
+            if ($version >= 4) {
                 $pdo->exec('COMMIT');
                 return;
             }
@@ -120,8 +120,11 @@ final class Db
             if ($version < 2) {
                 self::migrateV2($pdo);
             }
-            self::migrateV3($pdo);
-            $pdo->exec('PRAGMA user_version=3');
+            if ($version < 3) {
+                self::migrateV3($pdo);
+            }
+            self::migrateV4($pdo);
+            $pdo->exec('PRAGMA user_version=4');
             $pdo->exec('COMMIT');
         } catch (Throwable $e) {
             $pdo->exec('ROLLBACK');
@@ -175,6 +178,16 @@ final class Db
             'CREATE INDEX IF NOT EXISTS ix_song_audio_song ON song_audio (song_id)',
         ] as $ddl) {
             $pdo->exec($ddl);
+        }
+    }
+
+    /** Origine del testo: NULL = automatico (lyrics.ovh), 'manual' = scritto a mano o da OCR. */
+    private static function migrateV4(PDO $pdo): void
+    {
+        try {
+            $pdo->exec('ALTER TABLE song ADD COLUMN lyrics_source VARCHAR');
+        } catch (Throwable $e) {
+            // colonna gia' presente
         }
     }
 
