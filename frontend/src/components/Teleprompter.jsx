@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Guitar, Minus, Pause, Play, Plus, RotateCcw, X } from 'lucide-react'
+import { Guitar, Maximize2, Minus, Pause, Play, Plus, RotateCcw, X } from 'lucide-react'
 import LyricsView from './LyricsView'
 import { hasChords } from '../lib/chordpro'
 
@@ -56,14 +56,9 @@ export default function Teleprompter({ song, onClose }) {
   speedRef.current = speed
   fontRef.current = fontSize
 
-  // Tutto schermo vero dove c'è (non su iPhone: lì resta l'overlay), schermo acceso, pagina sotto ferma
+  // Schermo acceso e pagina sotto ferma. Lo schermo intero nativo del browser NON parte da solo:
+  // su telefono mostra un avviso che copre i comandi; resta a richiesta (pulsante), dove esiste.
   useEffect(() => {
-    const root = rootRef.current
-    try {
-      root?.requestFullscreen?.()?.catch?.(() => {})
-    } catch {
-      // non disponibile
-    }
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
 
@@ -150,6 +145,18 @@ export default function Teleprompter({ song, onClose }) {
       posRef.current = 0
     }
     setPlaying((p) => !p)
+  }
+
+  const canNativeFullscreen = typeof document !== 'undefined' && document.fullscreenEnabled === true
+
+  function toggleNativeFullscreen() {
+    try {
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+      else rootRef.current?.requestFullscreen?.()?.catch?.(() => {})
+    } catch {
+      // non disponibile
+    }
+    touchUi()
   }
 
   function restart() {
@@ -254,20 +261,13 @@ export default function Teleprompter({ song, onClose }) {
         <div style={{ height: '65vh' }} />
       </div>
 
-      {!playing && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center pt-[max(0.75rem,env(safe-area-inset-top))]">
-          <span className="px-3 py-1 rounded-full bg-gray-900/90 text-gray-400 text-xs">
-            Tocca il testo per avviare o fermare
-          </span>
-        </div>
-      )}
-
       <div
         className={`absolute inset-x-0 bottom-0 bg-gray-950/95 border-t border-gray-800 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-opacity duration-300 ${
           uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
+        <p className="text-center text-[11px] text-gray-500 mb-2">Tocca il testo per avviare o fermare</p>
         <div className="mx-auto max-w-xl flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <div className="flex items-center gap-2">
             <button className={btn} onClick={() => changeSpeed(-SPEED.step)} aria-label="Più lento">
@@ -302,6 +302,11 @@ export default function Teleprompter({ song, onClose }) {
             <button className={btn} onClick={restart} aria-label="Ricomincia">
               <RotateCcw className="w-5 h-5" />
             </button>
+            {canNativeFullscreen && (
+              <button className={btn} onClick={toggleNativeFullscreen} aria-label="Schermo intero del browser">
+                <Maximize2 className="w-5 h-5" />
+              </button>
+            )}
             {withChords && (
               <button
                 className={`${btn} ${showChords ? '!bg-amber-500/20 !text-amber-400' : 'text-gray-500'}`}
