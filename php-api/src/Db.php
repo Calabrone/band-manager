@@ -94,14 +94,14 @@ final class Db
 
     private static function init(PDO $pdo): void
     {
-        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 4) {
+        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 5) {
             return;
         }
         $pdo->exec('BEGIN IMMEDIATE');
         try {
             // Un'altra richiesta puo' aver inizializzato mentre aspettavamo il lock.
             $version = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-            if ($version >= 4) {
+            if ($version >= 5) {
                 $pdo->exec('COMMIT');
                 return;
             }
@@ -124,7 +124,8 @@ final class Db
                 self::migrateV3($pdo);
             }
             self::migrateV4($pdo);
-            $pdo->exec('PRAGMA user_version=4');
+            self::migrateV5($pdo);
+            $pdo->exec('PRAGMA user_version=5');
             $pdo->exec('COMMIT');
         } catch (Throwable $e) {
             $pdo->exec('ROLLBACK');
@@ -189,6 +190,26 @@ final class Db
         } catch (Throwable $e) {
             // colonna gia' presente
         }
+    }
+
+    /**
+     * unverified = brano inserito a mano perche' non trovato online (es. inedito);
+     * cover_video_id = video di prova scelto come copertina (NULL = il piu' recente).
+     */
+    private static function migrateV5(PDO $pdo): void
+    {
+        foreach ([
+            'ALTER TABLE song ADD COLUMN unverified BOOLEAN NOT NULL DEFAULT 0',
+            'ALTER TABLE song ADD COLUMN cover_video_id INTEGER',
+        ] as $ddl) {
+            try {
+                $pdo->exec($ddl);
+            } catch (Throwable $e) {
+                // colonna gia' presente
+            }
+        }
+        // I brani gia' inseriti con "Inserisci comunque" avevano solo validation_error valorizzato
+        // senza essere passati dalla pipeline: non si distinguono dagli errori reali, restano come sono.
     }
 
     private static function schema(): array

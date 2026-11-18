@@ -3,7 +3,7 @@ import re
 import httpx
 import pytest
 
-from conftest import API, ISO_RE, Api, login, register_user
+from conftest import API, ISO_RE, Api, login, register_user, uniq
 
 
 # ── Auth ────────────────────────────────────────────────────────────────────
@@ -78,7 +78,9 @@ class TestAuth:
 
 class TestSongs:
     def test_create_shape(self, song, member):
-        assert song["artist"] == "Test Artist" and song["title"] == "Test Title"
+        assert song["artist"] == "Test Artist" and song["title"].startswith("Test Title ")
+        assert song["title"] == song["title"].strip()
+        assert song["unverified"] is False and song["cover_video_id"] is None
         assert song["category"] == "proposta"
         assert song["validated"] is False
         assert song["proposed_by_id"] == member.user["id"]
@@ -112,10 +114,11 @@ class TestSongs:
         assert dates == sorted(dates, reverse=True)
 
     def test_update(self, song, member2):
-        r = member2.put(f"/songs/{song['id']}", json={"artist": " Nuovo ", "title": "Titolo", "category": "da_provare"})
+        titolo = uniq("Titolo")
+        r = member2.put(f"/songs/{song['id']}", json={"artist": " Nuovo ", "title": titolo, "category": "da_provare"})
         assert r.status_code == 200
         d = r.json()
-        assert (d["artist"], d["title"], d["category"]) == ("Nuovo", "Titolo", "da_provare")
+        assert (d["artist"], d["title"], d["category"]) == ("Nuovo", titolo, "da_provare")
         assert d["last_modified_by_id"] == member2.user["id"]
         assert d["proposed_by_id"] == song["proposed_by_id"]
         assert d["updated_at"] >= song["updated_at"]
@@ -187,7 +190,7 @@ class TestComments:
         assert bad.status_code == 400 and bad.json() == {"detail": "Commento padre non valido"}
 
     def test_parent_from_other_song_400(self, song, member, made):
-        other = member.post("/songs", json={"artist": "A", "title": "B"}).json()
+        other = member.post("/songs", json={"artist": "A", "title": uniq("B")}).json()
         made["songs"].append(other["id"])
         p = member.post(f"/songs/{other['id']}/comments", json={"content": "p"}).json()
         r = member.post(f"/songs/{song['id']}/comments", json={"content": "x", "parent_id": p["id"]})

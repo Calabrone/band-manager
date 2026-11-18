@@ -7,6 +7,7 @@ import CommentSection from '../components/CommentSection'
 import SongMedia from '../components/SongMedia'
 import LyricsView from '../components/LyricsView'
 import Teleprompter from '../components/Teleprompter'
+import CoverPicker from '../components/CoverPicker'
 
 const CATEGORY_LABELS = {
   proposta: 'Proposta',
@@ -28,6 +29,7 @@ export default function SongDetail() {
   const [enriching, setEnriching] = useState(false)
   const [chordsEnabled, setChordsEnabled] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
+  const [pickingCover, setPickingCover] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -104,11 +106,22 @@ export default function SongDetail() {
 
       {/* Cover + meta */}
       <div className="flex gap-4 p-4">
-        <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 bg-gray-800 flex items-center justify-center">
-          {song.cover_url ? (
-            <img src={song.cover_url} alt={song.title} className="w-full h-full object-cover" />
-          ) : (
-            <Music className="w-8 h-8 text-gray-600" />
+        <div className="flex-shrink-0 w-24">
+          <div className="w-24 h-24 rounded-xl overflow-hidden bg-gray-800 flex items-center justify-center">
+            {song.cover_url ? (
+              <img src={song.cover_url} alt={song.title} className="w-full h-full object-cover" />
+            ) : (
+              <Music className="w-8 h-8 text-gray-600" />
+            )}
+          </div>
+          {/* Senza copertina ufficiale la si prende da un video delle prove */}
+          {song.cover_from_video && (
+            <button
+              onClick={() => setPickingCover(true)}
+              className="mt-1 w-full text-center text-[11px] text-brand-400 hover:text-brand-300"
+            >
+              Cambia copertina
+            </button>
           )}
         </div>
         <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
@@ -127,7 +140,12 @@ export default function SongDetail() {
               <RefreshCw className="w-3 h-3 animate-spin" /> Validazione in corso...
             </span>
           )}
-          {song.validation_error && (
+          {song.validation_error && song.unverified && (
+            <span className="text-xs text-amber-400">
+              Non verificato: non trovato online (forse un brano inedito). Inserito a mano.
+            </span>
+          )}
+          {song.validation_error && !song.unverified && (
             <span className="text-xs text-red-400">{song.validation_error}</span>
           )}
         </div>
@@ -230,6 +248,14 @@ export default function SongDetail() {
           </button>
           <p className="text-xs text-gray-500 mt-2">Puoi scriverlo, incollarlo o leggerlo da una foto.</p>
         </div>
+      )}
+
+      {pickingCover && (
+        <CoverPicker
+          song={song}
+          onChanged={(updated) => { setSong(updated); setPickingCover(false) }}
+          onClose={() => setPickingCover(false)}
+        />
       )}
 
       {fullscreen && song.lyrics && <Teleprompter song={song} onClose={() => setFullscreen(false)} />}

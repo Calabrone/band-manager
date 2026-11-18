@@ -28,6 +28,7 @@ final class Routes
             ['PUT', '#^/songs/(?<id>\d+)$#', 'updateSong', 'user'],
             ['DELETE', '#^/songs/(?<id>\d+)$#', 'deleteSong', 'user'],
             ['PUT', '#^/songs/(?<id>\d+)/category$#', 'changeCategory', 'user'],
+            ['PUT', '#^/songs/(?<id>\d+)/cover$#', 'setCover', 'user'],
             ['POST', '#^/songs/(?<id>\d+)/enrich$#', 'enrichSong', 'user'],
             ['PUT', '#^/songs/(?<id>\d+)/lyrics$#', 'updateLyrics', 'user'],
             ['POST', '#^/songs/(?<id>\d+)/lyrics/ocr$#', 'ocrLyrics', 'user'],
@@ -178,18 +179,48 @@ final class Routes
      * Copertina di ripiego per i brani senza cover (es. inseriti con force): miniatura del video
      * di prova piu' recente, o thumbnail ricavata dal link YouTube.
      */
-    private static function videoCover(int $songId): ?string
+    private static function videoThumb(array $v): ?string
     {
-        $rows = Db::all('SELECT url, thumb_url FROM song_video WHERE song_id = ? ORDER BY recorded_on DESC, id DESC', [$songId]);
-        foreach ($rows as $v) {
-            if ($v['thumb_url'] !== null && $v['thumb_url'] !== '') {
-                return $v['thumb_url'];
+        if ($v['thumb_url'] !== null && $v['thumb_url'] !== '') {
+            return $v['thumb_url'];
+        }
+        if (preg_match('~(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|embed/)|youtu\.be/)([\w-]{11})~', (string)$v['url'], $m)) {
+            return 'https://img.youtube.com/vi/' . $m[1] . '/hqdefault.jpg';
+        }
+        return null;
+    }
+
+    /** Copertina di ripiego: il video scelto ($chosenId) se ha una miniatura, altrimenti il piu' recente che ne ha una. */
+    private static function videoCover(int $songId, ?int $chosenId = null): ?string
+    {
+        $rows = Db::all('SELECT id, url, thumb_url FROM song_video WHERE song_id = ? ORDER BY recorded_on DESC, id DESC', [$songId]);
+        if ($chosenId !== null) {
+            foreach ($rows as $v) {
+                if ((int)$v['id'] === $chosenId && ($thumb = self::videoThumb($v)) !== null) {
+                    return $thumb;
+                }
             }
-            if (preg_match('~(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|embed/)|youtu\.be/)([\w-]{11})~', (string)$v['url'], $m)) {
-                return 'https://img.youtube.com/vi/' . $m[1] . '/hqdefault.jpg';
+        }
+        foreach ($rows as $v) {
+            if (($thumb = self::videoThumb($v)) !== null) {
+                return $thumb;
             }
         }
         return null;
+    }
+
+    /** Errore 409 se esiste gia' un brano con lo stesso artista e titolo (senza badare a maiuscole e spazi). */
+    private static function assertNotDuplicate(string $artist, string $title, ?int $exceptId = null): void
+    {
+        $norm = static fn(string $s): string => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $s)));
+        $a = $norm($artist);
+        $t = $norm($title);
+        foreach (Db::all('SELECT id, artist, title, category FROM song') as $s) {
+            if ((int)$s['id'] !== $exceptId && $norm($s['artist']) === $a && $norm($s['title']) === $t) {
+                $label = ['proposta' => 'Proposta', 'da_provare' => 'Da Provare', 'in_scaletta' => 'In Scaletta'][$s['category']] ?? $s['category'];
+                Http::fail(409, "Il brano esiste già: «{$s['title']}» di {$s['artist']} (sezione {$label})");
+            }
+        }
     }
 
     private static function songOut(array $s): array
@@ -206,7 +237,10 @@ final class Routes
             'chords_url' => $s['chords_url'],
             'chords_text' => $s['chords_text'],
             'youtube_url' => $s['youtube_url'],
-            'cover_url' => $s['cover_url'] ?: self::videoCover((int)$s['id']),
+            'cover_url' => $s['cover_url'] ?: self::videoCover((int)$s['id'], $s['cover_video_id'] === null ? null : (int)$s['cover_video_id']),
+            'cover_from_video' => !$s['cover_url'],
+            'cover_video_id' => $s['cover_video_id'] === null ? null : (int)$s['cover_video_id'],
+            'unverified' => (bool)(int)($s['unverified'] ?? 0),
             'proposed_by_id' => (int)$s['proposed_by_id'],
             'last_modified_by_id' => (int)$s['last_modified_by_id'],
             'created_at' => Db::iso($s['created_at']),
@@ -469,7 +503,13 @@ final class Routes
         if ($artist === '' || $title === '') {
             Http::fail(400, 'Artista e titolo sono obbligatori');
         }
-        Http::send(Groq::validateSong($artist, $title, Settings::get('groq_api_key')));
+        // Prima di chiamare Groq, poi di nuovo sui nomi normalizzati (es. "radiohead" -> "Radiohead")
+        self::assertNotDuplicate($artist, $title);
+        $result = Groq::validateSong($artist, $title, Settings::get('groq_api_key'));
+        if (!empty($result['valid'])) {
+            self::assertNotDuplicate((string)$result['artist_normalized'], (string)$result['title_normalized']);
+        }
+        Http::send($result);
     }
 
     /**
@@ -483,16 +523,22 @@ final class Routes
         if (!in_array($category, self::CATEGORIES, true)) {
             Http::fail(400, 'Categoria non valida');
         }
+        if (trim($b['artist']) === '' || trim($b['title']) === '') {
+            Http::fail(400, 'Artista e titolo sono obbligatori');
+        }
+        self::assertNotDuplicate($b['artist'], $b['title']);
         $error = null;
+        $unverified = 0;
         if ($b['force'] === true) {
             $msg = trim((string)$b['message']);
             $error = $msg !== '' ? mb_substr($msg, 0, 500) : 'Inserito senza validazione';
+            $unverified = 1;
         }
         $now = Db::now();
         $id = Db::insert(
-            'INSERT INTO song (artist, title, category, validated, validation_error, proposed_by_id, last_modified_by_id, created_at, updated_at)
-             VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)',
-            [trim($b['artist']), trim($b['title']), $category, $error, $user['id'], $user['id'], $now, $now]
+            'INSERT INTO song (artist, title, category, validated, validation_error, unverified, proposed_by_id, last_modified_by_id, created_at, updated_at)
+             VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)',
+            [trim($b['artist']), trim($b['title']), $category, $error, $unverified, $user['id'], $user['id'], $now, $now]
         );
         Http::send(self::songOut(self::song($id)), 201);
     }
@@ -508,6 +554,10 @@ final class Routes
         $song = self::song($p['id']);
         $artist = $b['artist'] !== null ? trim($b['artist']) : $song['artist'];
         $title = $b['title'] !== null ? trim($b['title']) : $song['title'];
+        if ($artist === '' || $title === '') {
+            Http::fail(400, 'Artista e titolo sono obbligatori');
+        }
+        self::assertNotDuplicate($artist, $title, (int)$song['id']);
         $category = $song['category'];
         if ($b['category'] !== null) {
             if (!in_array($b['category'], self::CATEGORIES, true)) {
@@ -519,6 +569,24 @@ final class Routes
             'UPDATE song SET artist = ?, title = ?, category = ?, last_modified_by_id = ?, updated_at = ? WHERE id = ?',
             [$artist, $title, $category, $user['id'], Db::now(), $p['id']]
         );
+        Http::send(self::songOut(self::song($p['id'])));
+    }
+
+    /** Sceglie il video di prova da cui prendere la copertina (video_id null = il piu' recente). */
+    private static function setCover(array $p, array $user): void
+    {
+        $b = Http::body(['video_id' => '?int']);
+        self::song($p['id']);
+        if ($b['video_id'] !== null) {
+            $v = Db::one('SELECT * FROM song_video WHERE id = ? AND song_id = ?', [$b['video_id'], $p['id']]);
+            if ($v === null) {
+                Http::fail(404, 'Video non trovato');
+            }
+            if (self::videoThumb($v) === null) {
+                Http::fail(400, 'Questo video non ha una miniatura utilizzabile');
+            }
+        }
+        Db::exec('UPDATE song SET cover_video_id = ? WHERE id = ?', [$b['video_id'], $p['id']]);
         Http::send(self::songOut(self::song($p['id'])));
     }
 
@@ -765,6 +833,7 @@ final class Routes
             'recorded_on' => $v['recorded_on'],
             'note' => $v['note'],
             'thumb_url' => $v['thumb_url'],
+            'cover_thumb' => self::videoThumb($v),
             'created_at' => Db::iso($v['created_at']),
             'updated_at' => Db::iso($v['updated_at']),
         ];

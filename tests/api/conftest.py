@@ -121,9 +121,14 @@ def member2(admin, made):
     return register_user(admin, made)
 
 
+def uniq(prefix="T"):
+    """Nome univoco: l'API rifiuta i brani duplicati (stesso artista e titolo)."""
+    return f"{prefix} {uuid.uuid4().hex[:8]}"
+
+
 @pytest.fixture()
 def song(member, made):
-    r = member.post("/songs", json={"artist": "  Test Artist ", "title": " Test Title  "})
+    r = member.post("/songs", json={"artist": "  Test Artist ", "title": f" {uniq('Test Title')}  "})
     assert r.status_code == 201, r.text
     made["songs"].append(r.json()["id"])
     return r.json()

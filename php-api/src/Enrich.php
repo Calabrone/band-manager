@@ -47,7 +47,7 @@ final class Enrich
 
         Db::exec(
             'UPDATE song SET artist = ?, title = ?, lyrics = ?, cover_url = ?, chords_text = ?, chords_url = ?,
-                youtube_url = ?, validated = 1, validation_error = NULL, updated_at = ? WHERE id = ?',
+                youtube_url = ?, validated = 1, validation_error = NULL, unverified = 0, updated_at = ? WHERE id = ?',
             [$artist, $title, $lyrics, $cover, $chordsText, $chordsUrl, $youtube, Db::now(), $songId]
         );
     }

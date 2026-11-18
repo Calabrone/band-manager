@@ -139,6 +139,7 @@ GET  /api/songs/{id}
 PUT  /api/songs/{id}
 DELETE /api/songs/{id}
 PUT  /api/songs/{id}/category
+PUT  /api/songs/{id}/cover              → { video_id|null } video di prova da cui prendere la copertina (solo brani senza cover Genius)
 POST /api/songs/{id}/enrich             → re-triggers enrichment manually
 PUT  /api/songs/{id}/lyrics             → { lyrics } testo a mano con accordi in linea (max 30000); "" lo svuota; lyrics_source = manual
 POST /api/songs/{id}/lyrics/ocr         → multipart image (JPEG/PNG/WebP, max 4 MB) → { text, has_chords }; non salva
@@ -173,6 +174,10 @@ PUT  /api/admin/settings
 #### Accesso su invito (solo PHP/Aruba)
 
 Non c'è registrazione libera né creazione utenti con password dell'admin: l'admin genera un link `/invite/<token>` (QR incluso) da Admin → Utenti, il membro sceglie username, email e password. Token (invito e reset) = 256 bit casuali, a DB solo lo SHA-256 (`invite`, `password_reset`); scadenza, monouso, revocabili. `user.token_version` finisce nel claim `tv` del JWT: cambio/reset password invalida le sessioni precedenti. `user.must_change_password` blocca ogni route tranne `/auth/me` e `/auth/password` finché l'admin con password `admin123` non la cambia. Rate limit per IP su login e forgot (tabella `rate_hit`). Email: su Aruba `mail()` restituisce false e non consegna, quindi in produzione si usa SMTP autenticato (`Mailer::viaSmtp`, curl `smtps://smtps.aruba.it:465`) con la casella `noreply@motorn.it`: chiavi `smtp_host`, `smtp_port`, `smtp_user`, `smtp_pass`, `mail_from` in `config.php` (mai sovrascritto dal deploy; le credenziali locali stanno in `deploy/.smtp.env`, non versionato). Senza `smtp_host` ripiega su `mail()`. `app_url` opzionale, altrimenti dedotto dalla richiesta. Se la mail non arriva resta il link di reset generato dall'admin. Schema v2 (`PRAGMA user_version=2`).
+
+#### Duplicati, brani non verificati, copertina (solo PHP/Aruba)
+
+Schema v5 (`PRAGMA user_version=5`): `song.unverified` e `song.cover_video_id`. **Duplicati:** `Routes::assertNotDuplicate` risponde 409 `Il brano esiste già: «titolo» di artista (sezione X)` se esiste un brano con stesso artista+titolo (senza badare a maiuscole/spazi); controllato in `POST /songs/validate` (sui nomi digitati e su quelli normalizzati da Groq), `POST /songs` (anche con `force`) e `PUT /songs/{id}`. **Non verificato:** `force=true` imposta `unverified=1` (resta `validation_error` col messaggio); il frontend mostra "Non verificato" (ambra) invece di "Errore" (rosso); `Enrich::run` riuscito azzera il flag, un arricchimento fallito lo lascia. I brani forzati prima della v5 restano "Errore" finché si ricarica il testo. **Copertina:** senza `cover_url` (Genius) la copertina arriva dalla miniatura di un video di prova; `PUT /songs/{id}/cover` `{video_id}` sceglie quale (`null` = il più recente), `songOut` espone `cover_from_video`, `cover_video_id`, e `videoOut` espone `cover_thumb`. Frontend: `components/CoverPicker.jsx`. Test: `TestDuplicates`, `TestCoverChoice` in `tests/api/test_access.py` (i brani di test usano nomi univoci con `uniq()` di `conftest.py`).
 
 #### Video e audio delle prove (solo PHP/Aruba)
 
