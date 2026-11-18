@@ -28,6 +28,59 @@ final class Curl
     }
 }
 
+/** Ricerca brani su MusicBrainz (pubblico, senza chiave). Usato come tool dal suggerimento correzione. */
+final class MusicBrainz
+{
+    /** Parole di $text come termini Lucene fuzzy (tollerano i refusi), es. "radiohed" -> "radiohed~". */
+    private static function fuzzy(string $text): string
+    {
+        $words = preg_split('/[^\p{L}\p{N}]+/u', mb_substr($text, 0, 100), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        return implode(' ', array_map(static fn(string $w): string => mb_strlen($w) > 3 ? $w . '~' : $w, array_slice($words, 0, 8)));
+    }
+
+    /** Ricerca per artista e/o titolo (fuzzy) o, se mancano, per testo libero. */
+    public static function find(string $artist, string $title, string $query): array
+    {
+        $parts = [];
+        if (self::fuzzy($artist) !== '') {
+            $parts[] = 'artist:(' . self::fuzzy($artist) . ')';
+        }
+        if (self::fuzzy($title) !== '') {
+            $parts[] = 'recording:(' . self::fuzzy($title) . ')';
+        }
+        if ($parts === [] && self::fuzzy($query) !== '') {
+            $parts[] = '(' . self::fuzzy($query) . ')';
+        }
+        return $parts === [] ? [] : self::search(implode(' AND ', $parts));
+    }
+
+    /** @return list<array{artist:string,title:string}> vuoto su qualunque errore */
+    public static function search(string $query): array
+    {
+        $url = 'https://musicbrainz.org/ws/2/recording?fmt=json&limit=5&query=' . rawurlencode(mb_substr($query, 0, 300));
+        [$status, $body] = Curl::request('GET', $url, ['Accept: application/json'], null, 8);
+        if ($status !== 200 || $body === null) {
+            return [];
+        }
+        $data = json_decode($body, true);
+        $out = [];
+        foreach (($data['recordings'] ?? []) as $r) {
+            $artist = '';
+            foreach (($r['artist-credit'] ?? []) as $c) {
+                $artist .= ($c['name'] ?? '') . ($c['joinphrase'] ?? '');
+            }
+            $title = (string)($r['title'] ?? '');
+            $artist = trim($artist);
+            if ($artist === '' || $title === '') {
+                continue;
+            }
+            $key = mb_strtolower("$artist|$title");
+            $out[$key] = ['artist' => $artist, 'title' => $title];
+        }
+        return array_values($out);
+    }
+}
+
 final class Groq
 {
     private const URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -141,6 +194,16 @@ T;
 
     private static function complete(string $key, array $request, int $timeout): string
     {
+        $content = self::completeRaw($key, $request, $timeout)['content'] ?? null;
+        if (!is_string($content)) {
+            throw new RuntimeException('Risposta non valida dal modello');
+        }
+        return trim($content);
+    }
+
+    /** Come complete() ma restituisce l'intero messaggio (serve per tool_calls). */
+    private static function completeRaw(string $key, array $request, int $timeout): array
+    {
         $payload = json_encode($request, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         [$status, $body, $err] = Curl::request(
             'POST', self::URL,
@@ -155,11 +218,108 @@ T;
             $msg = is_array($data) ? ($data['error']['message'] ?? $body) : $body;
             throw new RuntimeException("Error code: $status - $msg");
         }
-        $content = $data['choices'][0]['message']['content'] ?? null;
-        if (!is_string($content)) {
+        $msg = $data['choices'][0]['message'] ?? null;
+        if (!is_array($msg)) {
             throw new RuntimeException('Risposta non valida dal modello');
         }
-        return trim($content);
+        return $msg;
+    }
+
+    private const SUGGEST_SYSTEM = <<<'T'
+Sei un esperto di musica. L'utente ha scritto artista e/o titolo di una canzone che non è stata trovata: probabilmente c'è un errore (refuso, nome incompleto, artista e titolo invertiti).
+Usa il tool search_music (catalogo online MusicBrainz) per trovare la canzone corretta; passa artista e titolo separati (la ricerca tollera i refusi); puoi provare varianti, ad esempio solo il titolo o solo l'artista, al massimo 3 chiamate.
+Proponi SOLO una canzone che compare nei risultati del tool. Non inventare.
+La correzione deve differire poco da ciò che ha scritto l'utente, sia nell'artista sia nel titolo (refusi, accenti, parole mancanti, campi invertiti). Se per ottenere la corrispondenza bisogna cambiare del tutto l'artista o il titolo, rispondi {"artist":null}. Preferisci l'artista più noto.
+Rispondi SOLO con JSON: {"artist":"...","title":"...","reason":"breve motivo in italiano"} oppure {"artist":null} se non c'è una corrispondenza affidabile.
+T;
+
+    /**
+     * Propone una correzione di artista/titolo cercando online (tool calling su MusicBrainz).
+     * @return ?array{artist:string,title:string,reason:string} null se nessuna proposta affidabile o su qualunque errore
+     */
+    public static function suggestCorrection(string $artist, string $title, string $key): ?array
+    {
+        if ($key === '') {
+            return null;
+        }
+        $tools = [[
+            'type' => 'function',
+            'function' => [
+                'name' => 'search_music',
+                'description' => 'Cerca canzoni nel catalogo online MusicBrainz per artista e/o titolo. Restituisce fino a 5 coppie artista/titolo.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'artist' => ['type' => 'string', 'description' => 'Artista (anche con refusi): la ricerca tollera piccoli errori'],
+                        'title' => ['type' => 'string', 'description' => 'Titolo della canzone (anche con refusi)'],
+                        'query' => ['type' => 'string', 'description' => 'Testo libero, solo se artista e titolo non sono separabili'],
+                    ],
+                ],
+            ],
+        ]];
+        $messages = [
+            ['role' => 'system', 'content' => self::SUGGEST_SYSTEM],
+            ['role' => 'user', 'content' => "Artista: $artist\nTitolo: $title"],
+        ];
+        $deadline = time() + 40;
+        try {
+            for ($round = 0; $round <= 3; $round++) {
+                $req = [
+                    'model' => self::MODEL,
+                    'messages' => $messages,
+                    'temperature' => 0.1,
+                    'max_completion_tokens' => 1024,
+                    'reasoning_effort' => 'low',
+                ];
+                if ($round < 3) {
+                    $req['tools'] = $tools;
+                }
+                $msg = self::completeRaw($key, $req, max(5, $deadline - time()));
+                $calls = $msg['tool_calls'] ?? [];
+                if (!is_array($calls) || $calls === [] || $round >= 3) {
+                    $raw = is_string($msg['content'] ?? null) ? $msg['content'] : '';
+                    break;
+                }
+                $messages[] = ['role' => 'assistant', 'content' => $msg['content'] ?? '', 'tool_calls' => $calls];
+                foreach ($calls as $c) {
+                    $args = json_decode((string)($c['function']['arguments'] ?? ''), true);
+                    $arg = static fn(string $k): string => is_array($args) && is_string($args[$k] ?? null) ? trim($args[$k]) : '';
+                    $found = time() < $deadline ? MusicBrainz::find($arg('artist'), $arg('title'), $arg('query')) : [];
+                    $messages[] = [
+                        'role' => 'tool',
+                        'tool_call_id' => (string)($c['id'] ?? ''),
+                        'content' => json_encode($found, JSON_UNESCAPED_UNICODE),
+                    ];
+                }
+            }
+        } catch (Throwable $e) {
+            return null;
+        }
+        if (!isset($raw) || !preg_match('/\{.*\}/s', $raw, $m)) {
+            return null;
+        }
+        $d = json_decode($m[0], true);
+        $a = is_array($d) && is_string($d['artist'] ?? null) ? trim($d['artist']) : '';
+        $t = is_array($d) && is_string($d['title'] ?? null) ? trim($d['title']) : '';
+        if ($a === '' || $t === '') {
+            return null;
+        }
+        $norm = static fn(string $s): string => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $s)));
+        if ($norm($a) === $norm($artist) && $norm($t) === $norm($title)) {
+            return null;
+        }
+        // Una correzione sistema refusi: artista e titolo devono restare simili a quanto scritto
+        // (anche con i due campi invertiti), altrimenti e' un'altra canzone.
+        $sim = static function (string $x, string $y) use ($norm): float {
+            similar_text($norm($x), $norm($y), $pct);
+            return $pct;
+        };
+        $straight = min($sim($a, $artist), $sim($t, $title));
+        $swapped = min($sim($a, $title), $sim($t, $artist));
+        if (max($straight, $swapped) < 60) {
+            return null;
+        }
+        return ['artist' => $a, 'title' => $t, 'reason' => mb_substr(trim((string)($d['reason'] ?? '')), 0, 200)];
     }
 
     /** @return array{valid:bool,artist_normalized:string,title_normalized:string,message:string} */

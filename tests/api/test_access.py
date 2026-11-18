@@ -224,13 +224,41 @@ class TestSongSections:
         before = len(member.get("/songs").json())
         r = member.post("/songs/validate", json={"artist": "Zzxx Qqww", "title": "Nonesiste Yyuu"})
         assert r.status_code == 200
-        assert set(r.json()) == {"valid", "artist_normalized", "title_normalized", "message"}
+        assert set(r.json()) == {"valid", "artist_normalized", "title_normalized", "message", "suggestion"}
         assert len(member.get("/songs").json()) == before
 
     def test_validate_requires_fields_and_auth(self, member, anon):
         assert member.post("/songs/validate", json={"artist": "solo"}).status_code == 422
         assert member.post("/songs/validate", json={"artist": " ", "title": "x"}).status_code == 400
         assert anon.post("/songs/validate", json={"artist": "a", "title": "b"}).status_code == 401
+
+    def test_validate_typo_gets_suggestion(self, member):
+        # Refuso evidente di un brano famoso: Groq + MusicBrainz devono proporre la correzione
+        r = member.post("/songs/validate", json={"artist": "Radiohed", "title": "Creap"})
+        assert r.status_code == 200
+        body = r.json()
+        assert "suggestion" in body
+        if body["message"].startswith("Errore validazione"):
+            pytest.skip("Groq non disponibile: " + body["message"][:80])
+        if not body["valid"]:
+            s = body["suggestion"]
+            assert s is not None, body
+            assert set(s) == {"artist", "title", "reason"}
+            assert s["artist"].lower() == "radiohead" and s["title"].lower() == "creep"
+
+    def test_validate_nonexistent_has_no_suggestion(self, member):
+        r = member.post("/songs/validate", json={"artist": "Zzxx Qqww", "title": "Nonesiste Yyuu"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["valid"] is False
+        assert body["suggestion"] is None
+
+    def test_validate_valid_song_has_no_suggestion(self, member):
+        r = member.post("/songs/validate", json={"artist": "Queen", "title": "Bohemian Rhapsody"})
+        assert r.status_code == 200
+        body = r.json()
+        if body["valid"]:
+            assert body["suggestion"] is None
 
     @pytest.mark.parametrize("cat", ["proposta", "da_provare", "in_scaletta"])
     def test_create_in_chosen_category(self, member, made, cat):

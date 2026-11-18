@@ -31,6 +31,7 @@ export default function AddEditSong() {
   const [validating, setValidating] = useState(false)
   const [validationStatus, setValidationStatus] = useState(null) // 'ok' | 'error' | null
   const [validationMsg, setValidationMsg] = useState('')
+  const [suggestion, setSuggestion] = useState(null) // {artist, title, reason} proposto da Groq
   const [createdSongId, setCreatedSongId] = useState(null) // solo se il record esiste gia' (errore in arricchimento)
   const [error, setError] = useState('')
   const pollRef = useRef(null)
@@ -87,10 +88,10 @@ export default function AddEditSong() {
     }, 2000)
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault()
+  async function runSubmit(artist, title) {
     setError('')
     setSubmitting(true)
+    setSuggestion(null)
 
     try {
       if (isEdit) {
@@ -108,6 +109,7 @@ export default function AddEditSong() {
         setValidating(false)
         setValidationStatus('error')
         setValidationMsg(check.message || 'Brano non trovato')
+        setSuggestion(check.suggestion || null)
         return
       }
       const { data: created } = await client.post('/songs', {
@@ -122,6 +124,20 @@ export default function AddEditSong() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    return runSubmit(artist, title)
+  }
+
+  // Applica la correzione proposta e rilancia la validazione
+  function handleUseSuggestion() {
+    const { artist: a, title: t } = suggestion
+    setArtist(a)
+    setTitle(t)
+    setValidationStatus(null)
+    return runSubmit(a, t)
   }
 
   // "Inserisci comunque": l'unico caso in cui un brano non trovato viene salvato
@@ -235,6 +251,22 @@ export default function AddEditSong() {
             <div className="flex-1">
               <p className="text-red-300 text-sm font-medium">Brano non trovato</p>
               <p className="text-red-400 text-xs mt-0.5">{validationMsg}</p>
+              {suggestion && !createdSongId && (
+                <div className="mt-3 p-3 rounded-lg bg-gray-800 border border-gray-700">
+                  <p className="text-gray-200 text-sm">
+                    Intendevi: <strong>{suggestion.title}</strong> di <strong>{suggestion.artist}</strong>?
+                  </p>
+                  {suggestion.reason && <p className="text-gray-400 text-xs mt-1">{suggestion.reason}</p>}
+                  <button
+                    type="button"
+                    onClick={handleUseSuggestion}
+                    disabled={submitting}
+                    className="mt-2 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
+                  >
+                    Usa suggerimento
+                  </button>
+                </div>
+              )}
               <p className="text-gray-400 text-xs mt-2">
                 {createdSongId
                   ? 'Vuoi tenerlo comunque?'

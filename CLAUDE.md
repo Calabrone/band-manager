@@ -44,6 +44,20 @@ bash deploy/deploy_aruba.sh band-test --api
 
 Il deploy non tocca mai `api/config.php` né `api/data/*` (tranne `data/.htaccess`). Build con base diversa: `export MSYS2_ENV_CONV_EXCL=VITE_BASE; VITE_BASE=/ npm run build` (Git Bash converte altrimenti `/` in un percorso Windows).
 
+### Prova locale con Docker (obbligatoria prima di commit, push e deploy)
+
+Non c'è PHP installato: si prova in `deploy/local/` (php:8.3-apache, stessa logica `.htaccess` di Aruba, senza redirect HTTPS). Sito su `http://localhost:8080/band/`; il DB sta in un volume Docker (`down -v` lo azzera, poi servono di nuovo le chiavi Groq/Genius da Admin → Impostazioni).
+
+```bash
+# Dalla cartella band-manager/
+(cd frontend && npm run build)                                   # base /band/
+docker build -t band-local-web deploy/local                      # solo la prima volta o se cambia il Dockerfile
+docker compose -f deploy/local/docker-compose.yml up -d --no-build
+docker compose -f deploy/local/docker-compose.yml down           # stop (il DB resta)
+```
+
+`docker compose up --build` fallisce qui (`failed to execute bake`): costruire l'immagine con `docker build`. Il PHP si ricarica a ogni richiesta; il frontend richiede un nuovo `npm run build`. Flusso: modifica → prova su Docker → commit/push → backup DB → deploy Aruba.
+
 ### Test
 
 ```bash
@@ -133,7 +147,7 @@ GET  /api/auth/reset/{token}            → { valid } (pubblico)
 POST /api/auth/reset                    → { token, new_password } (pubblico, monouso)
 
 GET  /api/songs                         → list, optional ?category=
-POST /api/songs/validate                → { artist, title } → esito Groq, NON scrive nel DB
+POST /api/songs/validate                → { artist, title } → esito Groq + `suggestion: {artist,title,reason}|null`, NON scrive nel DB. Se non valido, `Groq::suggestCorrection` fa tool calling (`search_music` → `MusicBrainz::search`, max 3 giri, ≤40 s) e propone la correzione; il frontend mostra «Intendevi…?» + "Usa suggerimento"
 POST /api/songs                         → { artist, title, category?, force?, message? } crea il record (il frontend lo chiama solo dopo validate ok, oppure con force=true per "Inserisci comunque"); enrich poi via POST /songs/{id}/enrich
 GET  /api/songs/{id}
 PUT  /api/songs/{id}

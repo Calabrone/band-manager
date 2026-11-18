@@ -496,7 +496,7 @@ final class Routes
     /** Solo verifica (Groq): non scrive nulla, il record nasce con POST /songs. */
     private static function validateSong(array $p, array $user): void
     {
-        set_time_limit(60);
+        set_time_limit(100);
         $b = Http::body(['artist' => 'string', 'title' => 'string']);
         $artist = trim($b['artist']);
         $title = trim($b['title']);
@@ -509,7 +509,25 @@ final class Routes
         if (!empty($result['valid'])) {
             self::assertNotDuplicate((string)$result['artist_normalized'], (string)$result['title_normalized']);
         }
+        $result['suggestion'] = null;
+        if (empty($result['valid'])) {
+            $s = Groq::suggestCorrection($artist, $title, Settings::get('groq_api_key'));
+            if ($s !== null && !self::songExists($s['artist'], $s['title'])) {
+                $result['suggestion'] = $s;
+            }
+        }
         Http::send($result);
+    }
+
+    private static function songExists(string $artist, string $title): bool
+    {
+        $norm = static fn(string $s): string => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $s)));
+        foreach (Db::all('SELECT artist, title FROM song') as $s) {
+            if ($norm($s['artist']) === $norm($artist) && $norm($s['title']) === $norm($title)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
