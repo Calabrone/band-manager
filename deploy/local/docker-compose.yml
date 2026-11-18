@@ -1,0 +1,18 @@
+# Prova locale del sito PHP+SQLite (come su Aruba). Uso, dalla cartella band-manager/:
+#   (cd frontend && npm run build)           # base /band/
+#   docker compose -f deploy/local/docker-compose.yml up --build
+# Sito: http://localhost:8080/band/   (admin / admin123, da cambiare al primo accesso)
+services:
+  web:
+    build: .
+    image: band-local-web
+    ports:
+      - "8080:80"
+    volumes:
+      - ../../frontend/dist:/var/www/html/band
+      - ./htaccess:/var/www/html/band/.htaccess:ro
+      - ../../php-api:/var/www/html/band/api
+      - ./config.php:/var/www/html/band/api/config.php:ro
+      - band-data:/var/www/html/band/api/data
+volumes:
+  band-data:

@@ -1,0 +1,8 @@
+# Copia locale di frontend/public/.htaccess SENZA il redirect HTTP->HTTPS
+Options -MultiViews
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteRule ^api/(?!data/|src/)(.*)$ api/index.php [L,QSA]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
