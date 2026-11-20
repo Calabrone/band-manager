@@ -68,6 +68,7 @@ export default function SongCard({ song, onDelete, onCategoryChange }) {
           <span className={`text-xs px-2 py-0.5 rounded-full ${CATEGORY_COLORS[song.category]}`}>
             {CATEGORY_LABELS[song.category]}
           </span>
+          {song.studio_project_id && <span className="text-xs text-purple-300">Inedito</span>}
           {song.validation_error && song.unverified && (
             <span className="text-xs text-amber-400" title={song.validation_error}>Non verificato</span>
           )}

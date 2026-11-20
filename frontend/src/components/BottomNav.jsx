@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Music2, PlusCircle, Settings, UserCircle } from 'lucide-react'
+import { AudioLines, Music2, PlusCircle, Settings, UserCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { VERSION } from '../version'
 
@@ -9,6 +9,7 @@ export default function BottomNav() {
 
   const links = [
     { to: '/', icon: Music2, label: 'Brani' },
+    { to: '/studio', icon: AudioLines, label: 'Prove' },
     { to: '/add', icon: PlusCircle, label: 'Aggiungi' },
     ...(isAdmin() ? [{ to: '/admin', icon: Settings, label: 'Admin' }] : []),
     { to: '/profile', icon: UserCircle, label: 'Profilo' },
@@ -18,7 +19,7 @@ export default function BottomNav() {
     <nav className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 safe-bottom z-40">
       <div className="flex relative">
         {links.map(({ to, icon: Icon, label }) => {
-          const active = location.pathname === to
+          const active = to === '/studio' ? location.pathname.startsWith('/studio') : location.pathname === to
           return (
             <Link
               key={to}

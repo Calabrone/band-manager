@@ -94,14 +94,14 @@ final class Db
 
     private static function init(PDO $pdo): void
     {
-        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 5) {
+        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 6) {
             return;
         }
         $pdo->exec('BEGIN IMMEDIATE');
         try {
             // Un'altra richiesta puo' aver inizializzato mentre aspettavamo il lock.
             $version = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-            if ($version >= 5) {
+            if ($version >= 6) {
                 $pdo->exec('COMMIT');
                 return;
             }
@@ -125,7 +125,8 @@ final class Db
             }
             self::migrateV4($pdo);
             self::migrateV5($pdo);
-            $pdo->exec('PRAGMA user_version=5');
+            self::migrateV6($pdo);
+            $pdo->exec('PRAGMA user_version=6');
             $pdo->exec('COMMIT');
         } catch (Throwable $e) {
             $pdo->exec('ROLLBACK');
@@ -210,6 +211,57 @@ final class Db
         }
         // I brani gia' inseriti con "Inserisci comunque" avevano solo validation_error valorizzato
         // senza essere passati dalla pipeline: non si distinguono dagli errori reali, restano come sono.
+    }
+
+    /**
+     * Sala prove: brani di prova (studio_project) con contenuti audio/video (studio_take),
+     * marker su un istante (studio_marker) e commenti (studio_comment). Solo tabelle nuove.
+     */
+    private static function migrateV6(PDO $pdo): void
+    {
+        foreach ([
+            'CREATE TABLE IF NOT EXISTS studio_project (
+                id INTEGER PRIMARY KEY,
+                title VARCHAR NOT NULL, description VARCHAR,
+                status VARCHAR NOT NULL DEFAULT \'idea\',
+                bpm INTEGER, music_key VARCHAR,
+                created_by_id INTEGER NOT NULL,
+                song_id INTEGER,
+                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL,
+                last_activity_at DATETIME NOT NULL)',
+            'CREATE INDEX IF NOT EXISTS ix_studio_project_status ON studio_project (status)',
+            'CREATE INDEX IF NOT EXISTS ix_studio_project_song ON studio_project (song_id)',
+            'CREATE TABLE IF NOT EXISTS studio_take (
+                id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                title VARCHAR NOT NULL, description VARCHAR,
+                kind VARCHAR NOT NULL,
+                original_name VARCHAR NOT NULL, stored_name VARCHAR NOT NULL UNIQUE,
+                ext VARCHAR NOT NULL, mime VARCHAR NOT NULL, size INTEGER NOT NULL,
+                duration_ms INTEGER,
+                trim_start_ms INTEGER, trim_end_ms INTEGER,
+                peaks TEXT,
+                base_take_id INTEGER, offset_ms INTEGER,
+                sync_ms INTEGER, base_start_ms INTEGER,
+                base_loop_start_ms INTEGER, base_loop_end_ms INTEGER,
+                recorded_in_app BOOLEAN NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)',
+            'CREATE INDEX IF NOT EXISTS ix_studio_take_project ON studio_take (project_id)',
+            'CREATE INDEX IF NOT EXISTS ix_studio_take_base ON studio_take (base_take_id)',
+            'CREATE TABLE IF NOT EXISTS studio_marker (
+                id INTEGER PRIMARY KEY, take_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                time_ms INTEGER NOT NULL, label VARCHAR NOT NULL,
+                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)',
+            'CREATE INDEX IF NOT EXISTS ix_studio_marker_take ON studio_marker (take_id)',
+            'CREATE TABLE IF NOT EXISTS studio_comment (
+                id INTEGER PRIMARY KEY, take_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                content VARCHAR NOT NULL,
+                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)',
+            'CREATE INDEX IF NOT EXISTS ix_studio_comment_take ON studio_comment (take_id)',
+        ] as $ddl) {
+            $pdo->exec($ddl);
+        }
+        // Nome della band: precompila l'artista dei brani promossi dalla Sala prove
+        $pdo->exec("INSERT OR IGNORE INTO appsetting (\"key\", value) VALUES ('band_name', '')");
     }
 
     private static function schema(): array

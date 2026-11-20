@@ -375,6 +375,54 @@ function SettingField({ label, hint, settingKey, initialMasked }) {
   )
 }
 
+/** Impostazione non segreta: il valore attuale è in chiaro e si può modificare (o svuotare). */
+function PlainSettingField({ label, hint, settingKey, initialValue, placeholder }) {
+  const [value, setValue] = useState(initialValue ?? '')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setValue(initialValue ?? '')
+  }, [initialValue])
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await client.put('/admin/settings', { key: settingKey, value })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
+      {hint && <p className="text-xs text-gray-500 mb-2">{hint}</p>}
+      <div className="flex gap-2">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          maxLength={150}
+          placeholder={placeholder}
+          className="flex-1 px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 text-sm"
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className={`px-4 py-3 rounded-xl flex items-center gap-1.5 text-sm font-medium transition disabled:opacity-50 ${
+            saved ? 'bg-green-700 text-white' : 'bg-brand-600 hover:bg-brand-700 text-white'
+          }`}
+        >
+          <Save className="w-4 h-4" />
+          {saved ? 'Salvato ✓' : saving ? '...' : 'Salva'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function SettingsTab() {
   const [settings, setSettings] = useState([])
   const [chordsEnabled, setChordsEnabled] = useState(false)
@@ -401,6 +449,7 @@ function SettingsTab() {
   }
 
   const masked = Object.fromEntries(settings.map((s) => [s.key, s.value_masked]))
+  const plain = Object.fromEntries(settings.map((s) => [s.key, s.value]))
 
   return (
     <div className="space-y-6">
@@ -428,6 +477,16 @@ function SettingsTab() {
       </div>
 
       <div className="border-t border-gray-800" />
+
+      {settings.length > 0 && (
+        <PlainSettingField
+          label="Nome della band"
+          hint="Precompila l'artista quando un brano di prova viene promosso nella lista dei brani."
+          settingKey="band_name"
+          initialValue={plain.band_name}
+          placeholder="es. I Miei Amici"
+        />
+      )}
 
       <SettingField
         label="Groq API Key"

@@ -8,6 +8,11 @@ import Songs from './pages/Songs'
 import SongDetail from './pages/SongDetail'
 import AddEditSong from './pages/AddEditSong'
 import LyricsEdit from './pages/LyricsEdit'
+import Studio from './pages/Studio'
+import StudioProject from './pages/StudioProject'
+import StudioProjectEdit from './pages/StudioProjectEdit'
+import StudioTake from './pages/StudioTake'
+import StudioRecord from './pages/StudioRecord'
 import Admin from './pages/Admin'
 import Profile from './pages/Profile'
 
@@ -35,6 +40,12 @@ function AppRoutes() {
       <Route path="/add" element={<ProtectedRoute><AddEditSong /></ProtectedRoute>} />
       <Route path="/songs/:id/edit" element={<ProtectedRoute><AddEditSong /></ProtectedRoute>} />
       <Route path="/songs/:id/lyrics" element={<ProtectedRoute><LyricsEdit /></ProtectedRoute>} />
+      <Route path="/studio" element={<ProtectedRoute><Studio /></ProtectedRoute>} />
+      <Route path="/studio/new" element={<ProtectedRoute><StudioProjectEdit /></ProtectedRoute>} />
+      <Route path="/studio/:pid" element={<ProtectedRoute><StudioProject /></ProtectedRoute>} />
+      <Route path="/studio/:pid/edit" element={<ProtectedRoute><StudioProjectEdit /></ProtectedRoute>} />
+      <Route path="/studio/:pid/record" element={<ProtectedRoute><StudioRecord /></ProtectedRoute>} />
+      <Route path="/studio/:pid/takes/:tid" element={<ProtectedRoute><StudioTake /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />

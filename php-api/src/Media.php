@@ -21,6 +21,14 @@ final class Media
         'webm' => 'audio/webm',
     ];
 
+    /** Video della Sala prove (contenuti `kind=video`). */
+    public const VIDEO_TYPES = [
+        'mp4' => 'video/mp4',
+        'm4v' => 'video/mp4',
+        'mov' => 'video/quicktime',
+        'webm' => 'video/webm',
+    ];
+
     /** Validita' del link firmato di ascolto/download. */
     public const URL_TTL = 6 * 3600;
 
@@ -36,6 +44,32 @@ final class Media
     public static function audioPath(string $storedName): string
     {
         return self::audioDir() . '/' . $storedName;
+    }
+
+    public static function studioDir(): string
+    {
+        return dirname(__DIR__) . '/data/studio';
+    }
+
+    public static function studioPath(string $storedName): string
+    {
+        return self::studioDir() . '/' . $storedName;
+    }
+
+    /** MIME di un contenuto della Sala prove deciso solo da estensione e tipo (null = non ammesso). */
+    public static function studioMime(string $ext, string $kind): ?string
+    {
+        return match ($kind) {
+            'audio' => self::AUDIO_TYPES[$ext] ?? null,
+            'video' => self::VIDEO_TYPES[$ext] ?? null,
+            default => null,
+        };
+    }
+
+    /** Estensioni ammesse per un tipo di contenuto, per i messaggi d'errore. */
+    public static function studioExts(string $kind): array
+    {
+        return array_keys($kind === 'video' ? self::VIDEO_TYPES : self::AUDIO_TYPES);
     }
 
     /** "128M" -> byte. */
@@ -113,25 +147,26 @@ final class Media
 
     // ── Link firmati ─────────────────────────────────────────────────────────
 
-    private static function signature(int $audioId, int $exp): string
+    /** $scope separa i token: quello di un audio ("audio") non apre un contenuto della Sala prove ("take") e viceversa. */
+    private static function signature(string $scope, int $id, int $exp): string
     {
-        $mac = hash_hmac('sha256', "audio:$audioId:$exp", Config::get('secret_key'), true);
+        $mac = hash_hmac('sha256', "$scope:$id:$exp", Config::get('secret_key'), true);
         return rtrim(strtr(base64_encode($mac), '+/', '-_'), '=');
     }
 
     /** @return array{0:int,1:string} [scadenza, firma] */
-    public static function sign(int $audioId): array
+    public static function sign(int $id, string $scope = 'audio'): array
     {
         $exp = time() + self::URL_TTL;
-        return [$exp, self::signature($audioId, $exp)];
+        return [$exp, self::signature($scope, $id, $exp)];
     }
 
-    public static function verify(int $audioId, mixed $exp, mixed $sig): bool
+    public static function verify(int $id, mixed $exp, mixed $sig, string $scope = 'audio'): bool
     {
         if (!is_string($exp) || !ctype_digit($exp) || !is_string($sig) || (int)$exp < time()) {
             return false;
         }
-        return hash_equals(self::signature($audioId, (int)$exp), $sig);
+        return hash_equals(self::signature($scope, $id, (int)$exp), $sig);
     }
 
     // ── Streaming ────────────────────────────────────────────────────────────
@@ -144,10 +179,13 @@ final class Media
         return $kind . '; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($clean);
     }
 
-    /** Invia il file (200 o 206 con Range, 416 se il range non e' valido). */
-    public static function stream(array $audio, bool $download): never
+    /**
+     * Invia il file (200 o 206 con Range, 416 se il range non e' valido).
+     * Di default e' un audio delle prove; per la Sala prove si passano cartella e MIME del contenuto.
+     */
+    public static function stream(array $audio, bool $download, ?string $dir = null, ?string $mime = null): never
     {
-        $path = self::audioPath($audio['stored_name']);
+        $path = ($dir ?? self::audioDir()) . '/' . $audio['stored_name'];
         $size = is_file($path) ? (int)filesize($path) : -1;
         if ($size <= 0) {
             Http::fail(404, 'File non trovato');
@@ -179,7 +217,7 @@ final class Media
         }
         set_time_limit(0);
         http_response_code($status);
-        header('Content-Type: ' . (self::AUDIO_TYPES[$audio['ext']] ?? 'application/octet-stream'));
+        header('Content-Type: ' . ($mime ?? self::AUDIO_TYPES[$audio['ext']] ?? 'application/octet-stream'));
         header('Accept-Ranges: bytes');
         header('Content-Length: ' . $length);
         if ($status === 206) {

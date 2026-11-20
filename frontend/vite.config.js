@@ -21,7 +21,10 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         runtimeCaching: [
           {
-            urlPattern: new RegExp(`${BASE}api/`),
+            // Le chiamate API vanno sempre in rete. Gli stream dei file (audio/video, con Range) restano
+            // fuori dal service worker: li gestisce il browser, che così può fare seek anche su Safari.
+            // (Regex e non funzione: il service worker è generato e una funzione non vedrebbe la costante BASE.)
+            urlPattern: new RegExp(`${BASE}api/(?!.*/file(?:\\?|$))`),
             handler: 'NetworkOnly',
           },
         ],

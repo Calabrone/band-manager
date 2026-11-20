@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 final class Routes
 {
-    private const CATEGORIES = ['proposta', 'da_provare', 'in_scaletta'];
+    public const CATEGORIES = ['proposta', 'da_provare', 'in_scaletta'];
 
     /** [metodo, regex del path, handler, accesso: none|user|admin] */
     private static function table(): array
@@ -54,6 +54,30 @@ final class Routes
             // Accesso 'none': <audio> e il download non possono mandare Authorization, vale la firma in query
             ['GET', '#^/songs/(?<id>\d+)/audios/(?<aid>\d+)/file$#', 'audioFile', 'none'],
 
+            // Sala prove (src/Studio.php)
+            ['GET', '#^/studio/projects$#', 'Studio::listProjects', 'user'],
+            ['POST', '#^/studio/projects$#', 'Studio::createProject', 'user'],
+            ['GET', '#^/studio/usage$#', 'Studio::usage', 'user'],
+            ['GET', '#^/studio/projects/(?<pid>\d+)$#', 'Studio::getProject', 'user'],
+            ['PUT', '#^/studio/projects/(?<pid>\d+)$#', 'Studio::updateProject', 'user'],
+            ['DELETE', '#^/studio/projects/(?<pid>\d+)$#', 'Studio::deleteProject', 'user'],
+            ['PUT', '#^/studio/projects/(?<pid>\d+)/status$#', 'Studio::setStatus', 'user'],
+            ['POST', '#^/studio/projects/(?<pid>\d+)/promote$#', 'Studio::promote', 'user'],
+            ['POST', '#^/studio/projects/(?<pid>\d+)/takes$#', 'Studio::createTake', 'user'],
+            ['GET', '#^/studio/takes/(?<tid>\d+)$#', 'Studio::getTake', 'user'],
+            ['PUT', '#^/studio/takes/(?<tid>\d+)$#', 'Studio::updateTake', 'user'],
+            ['DELETE', '#^/studio/takes/(?<tid>\d+)$#', 'Studio::deleteTake', 'user'],
+            // Accesso 'none': <audio>/<video> non mandano Authorization, vale la firma in query
+            ['GET', '#^/studio/takes/(?<tid>\d+)/file$#', 'Studio::takeFile', 'none'],
+            ['GET', '#^/studio/takes/(?<tid>\d+)/markers$#', 'Studio::listMarkers', 'user'],
+            ['POST', '#^/studio/takes/(?<tid>\d+)/markers$#', 'Studio::createMarker', 'user'],
+            ['PUT', '#^/studio/takes/(?<tid>\d+)/markers/(?<mid>\d+)$#', 'Studio::updateMarker', 'user'],
+            ['DELETE', '#^/studio/takes/(?<tid>\d+)/markers/(?<mid>\d+)$#', 'Studio::deleteMarker', 'user'],
+            ['GET', '#^/studio/takes/(?<tid>\d+)/comments$#', 'Studio::listComments', 'user'],
+            ['POST', '#^/studio/takes/(?<tid>\d+)/comments$#', 'Studio::createComment', 'user'],
+            ['PUT', '#^/studio/takes/(?<tid>\d+)/comments/(?<cid>\d+)$#', 'Studio::updateComment', 'user'],
+            ['DELETE', '#^/studio/takes/(?<tid>\d+)/comments/(?<cid>\d+)$#', 'Studio::deleteComment', 'user'],
+
             ['GET', '#^/admin/users$#', 'adminListUsers', 'admin'],
             ['PUT', '#^/admin/users/(?<uid>\d+)/password$#', 'adminResetPassword', 'admin'],
             ['POST', '#^/admin/users/(?<uid>\d+)/reset-link$#', 'adminResetLink', 'admin'],
@@ -93,7 +117,12 @@ final class Routes
                     $ids[$k] = $k === 'token' ? $v : (int)$v;
                 }
             }
-            self::$handler($ids, $user);
+            if (str_contains($handler, '::')) {
+                [$class, $method] = explode('::', $handler);
+                $class::$method($ids, $user);
+            } else {
+                self::$handler($ids, $user);
+            }
             exit;
         }
         Http::fail($pathMatched ? 405 : 404, $pathMatched ? 'Method Not Allowed' : 'Not Found');
@@ -150,7 +179,7 @@ final class Routes
     }
 
     /** URL base dell'app (es. https://www.motorn.it/band): da config app_url o dedotto dalla richiesta. */
-    private static function appUrl(): string
+    public static function appUrl(): string
     {
         $cfg = Config::get('app_url');
         if ($cfg !== '') {
@@ -169,7 +198,7 @@ final class Routes
         return Db::one('SELECT * FROM "user" WHERE id = ?', [$userId]);
     }
 
-    private static function username(int $id): string
+    public static function username(int $id): string
     {
         $u = Db::one('SELECT username FROM "user" WHERE id = ?', [$id]);
         return $u === null ? '' : $u['username'];
@@ -210,7 +239,7 @@ final class Routes
     }
 
     /** Errore 409 se esiste gia' un brano con lo stesso artista e titolo (senza badare a maiuscole e spazi). */
-    private static function assertNotDuplicate(string $artist, string $title, ?int $exceptId = null): void
+    public static function assertNotDuplicate(string $artist, string $title, ?int $exceptId = null): void
     {
         $norm = static fn(string $s): string => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $s)));
         $a = $norm($artist);
@@ -241,6 +270,7 @@ final class Routes
             'cover_from_video' => !$s['cover_url'],
             'cover_video_id' => $s['cover_video_id'] === null ? null : (int)$s['cover_video_id'],
             'unverified' => (bool)(int)($s['unverified'] ?? 0),
+            'studio_project_id' => ($sp = Db::one('SELECT id FROM studio_project WHERE song_id = ?', [(int)$s['id']])) === null ? null : (int)$sp['id'],
             'proposed_by_id' => (int)$s['proposed_by_id'],
             'last_modified_by_id' => (int)$s['last_modified_by_id'],
             'created_at' => Db::iso($s['created_at']),
@@ -287,6 +317,7 @@ final class Routes
             'chords_enabled' => Settings::get('chords_enabled') === 'true',
             'max_upload_bytes' => Media::maxUploadBytes(),
             'ocr_available' => Settings::get('groq_api_key') !== '',
+            'band_name' => Settings::get('band_name'),
         ]);
     }
 
@@ -619,6 +650,11 @@ final class Routes
         }
         Db::exec('DELETE FROM song_audio WHERE song_id = ?', [$p['id']]);
         Db::exec('DELETE FROM song WHERE id = ?', [$p['id']]);
+        // Il brano di prova promosso torna "Pronto", con tutti i suoi contenuti
+        Db::exec(
+            "UPDATE studio_project SET song_id = NULL, status = 'pronto', updated_at = ? WHERE song_id = ?",
+            [Db::now(), $p['id']]
+        );
         Http::send(null, 204);
     }
 
@@ -1172,10 +1208,14 @@ final class Routes
         Http::send(null, 204);
     }
 
+    /** Impostazioni non segrete: l'Admin ne vede il valore in chiaro. */
+    private const PLAIN_SETTINGS = ['band_name'];
+
     private static function adminGetSettings(array $p, array $admin): void
     {
         $rows = Db::all('SELECT "key", value FROM appsetting');
-        Http::send(array_map(fn($s) => ['key' => $s['key'], 'value_masked' => self::maskValue($s['value'])], $rows));
+        Http::send(array_map(fn($s) => ['key' => $s['key'], 'value_masked' => self::maskValue($s['value'])]
+            + (in_array($s['key'], self::PLAIN_SETTINGS, true) ? ['value' => $s['value']] : []), $rows));
     }
 
     private static function adminUpdateSetting(array $p, array $admin): void

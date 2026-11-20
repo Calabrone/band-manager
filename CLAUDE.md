@@ -65,7 +65,9 @@ docker compose -f deploy/local/docker-compose.yml down           # stop (il DB r
 pip install pytest httpx
 cd tests/api && API_BASE_URL=https://www.motorn.it/band-test/api ADMIN_PASSWORD=... pytest -q    # ADMIN_USER se diverso da admin
 # Frontend: formato accordi (nessuna dipendenza, Node >= 20)
-node --test tests/frontend/chordpro.test.mjs
+node --test tests/frontend/chordpro.test.mjs tests/frontend/studio.test.mjs tests/frontend/engines.test.mjs
+# End-to-end della Sala prove (Chrome headless, microfono/fotocamera finti; Node >= 22) su un sito locale o di prova, mai sulla produzione
+ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/studio.e2e.mjs
 # Frontend: controlla base path in index.html, manifest, service worker
 bash tests/frontend/check_base.sh /band/
 ```
@@ -174,6 +176,17 @@ POST /api/songs/{id}/audios             → multipart: file, title, recorded_on,
 PUT/DELETE /api/songs/{id}/audios/{aid} → solo chi l'ha caricato
 GET  /api/songs/{id}/audios/{aid}/file?e=&s=[&dl=1] → stream con Range (206/416); firma in query perché <audio> non manda Authorization
 
+GET/POST /api/studio/projects           → Sala prove: brani di prova { title, description?, bpm?, music_key? }; GET ?status=a,b (default: tutti tranne archiviato)
+GET/PUT/DELETE /api/studio/projects/{pid} → solo creatore o admin per PUT/DELETE; DELETE 409 se promosso con brano esistente
+PUT  /api/studio/projects/{pid}/status  → { status } idea|lavorazione|pronto|archiviato (promosso solo con promote)
+POST /api/studio/projects/{pid}/promote → { title, artist, category } crea il brano (inedito) e porta il progetto a "promosso"; solo se "pronto"
+POST /api/studio/projects/{pid}/takes   → multipart: file, kind (audio|video), title, description?, duration_ms?, trim_start_ms/trim_end_ms?, peaks?, recorded_in_app?, base_take_id? + offset_ms/sync_ms/base_start_ms/base_loop_start_ms/base_loop_end_ms
+GET/PUT/DELETE /api/studio/takes/{tid}  → GET con peaks, file_url firmato e base; PUT { title?, description?, trim_start_ms+trim_end_ms (null = intero), offset_ms? } e DELETE solo all'autore (nemmeno l'admin)
+GET  /api/studio/takes/{tid}/file?e=&s=[&dl=1] → stream con Range; firma con scope "take" (non vale per gli audio di rehearsal-media)
+GET/POST /api/studio/takes/{tid}/markers, PUT/DELETE …/markers/{mid}   → { time_ms, label ≤80 }, modifica solo l'autore
+GET/POST /api/studio/takes/{tid}/comments, PUT/DELETE …/comments/{cid} → { content ≤2000 }, commenti semplici, citazioni nel testo [[m:id]] / [[t:ms]]
+GET  /api/studio/usage                  → { bytes, count } spazio occupato dalle prove
+
 GET  /api/admin/users
 PUT  /api/admin/users/{id}/password     → admin resets any user's password
 POST /api/admin/users/{id}/reset-link   → { url, expires_at } link di reset (1 h) da mandare in chat
@@ -196,6 +209,16 @@ Schema v5 (`PRAGMA user_version=5`): `song.unverified` e `song.cover_video_id`. 
 #### Video e audio delle prove (solo PHP/Aruba)
 
 Schema v3 (`PRAGMA user_version=3`): tabelle `song_video` e `song_audio`. I file audio stanno in `api/data/audio/` con nome casuale senza estensione (protetta da `data/.htaccess`, servita solo da `Media::stream`); il tipo si decide dall'estensione (whitelist in `Media::AUDIO_TYPES`), nessuna conversione. Limiti upload su Aruba misurati: 128 MB (`GET /config` → `max_upload_bytes`). `LinkPreview` (in `Media.php`) risolve l'host, rifiuta IP privati/riservati e porte diverse da 80/443, segue max 3 redirect a mano. Frontend: `components/SongMedia.jsx`. Spec: `.kiro/specs/rehearsal-media/`. Test: `tests/api/test_media.py`.
+
+#### Sala prove (solo PHP/Aruba)
+
+Sezione **Prove** (voce nella barra in basso), separata dalle cover: brani di prova con titolo provvisorio, contenuti audio/video caricati o registrati nell'app, player con loop A-B, marker e commenti. Schema v6 (`PRAGMA user_version=6`): `studio_project` (stato `idea`→`lavorazione`→`pronto`→`promosso`, `archiviato`; `song_id` dopo la promozione), `studio_take` (file in `api/data/studio/`, nome casuale senza estensione; `kind` audio/video, `trim_*` = taglio predefinito dell'autore, `peaks` JSON della forma d'onda calcolata dal client, campi della sovraincisione), `studio_marker`, `studio_comment`; chiave `band_name` in `appsetting` (Admin → Impostazioni, in chiaro) precompila l'artista nella promozione ed è esposta da `GET /config`. Backend: `php-api/src/Studio.php` (le route stanno nella tabella di `Routes.php` come `Studio::metodo`); `Media.php` ha `VIDEO_TYPES`, `studioMime(ext, kind)`, firme con scope (`audio`/`take`) e `stream()` con cartella e MIME parametrici. **Promozione:** crea il brano con `unverified=1`, `lyrics_source='manual'`, senza passare da Groq/Genius; eliminarlo dalla lista riporta il progetto a "pronto" (`deleteSong`); `songOut` espone `studio_project_id` (frontend: badge "Inedito" e link "Materiale delle prove").
+
+**Sovraincisione:** il contenuto registrato sopra una base salva `base_take_id` e il modello di allineamento `b(t) = t − sync_ms − offset_ms + base_start_ms` (con ripiego nel loop `base_loop_*`), in `frontend/src/lib/sync.js` (unica fonte, testata). `offset_ms` è la latenza e si regola nel player (±2000 ms).
+
+Frontend: pagine `Studio`, `StudioProject`, `StudioProjectEdit`, `StudioTake`, `StudioRecord` (route `/studio…`); `components/studio/` (`LoopPlayer`, `Timeline` su canvas, `usePlayback`, `MarkerList`, `StudioComments`, `TakeUpload`, `PromoteDialog`, `ui.jsx`); `lib/` pure e testate con `node --test`: `loop.js` (loop, zoom), `refs.js` (citazioni nei commenti), `peaks.js`, `sync.js`, `countin.js`, `recorder.js`, `probe.js`; `lib/engines.js` ha i due motori (Web Audio per l'audio ≤ 60 MB con loop senza stacchi, elemento media per video e file grandi). Registrazione con `MediaRecorder`: mp4 dove supportato, webm di ripiego; si ferma da sola al 95% del limite di upload. Il service worker lascia fuori gli stream `…/file` (regex in `vite.config.js`: il Range di Safari non passa bene dal SW).
+
+Spec: `.kiro/specs/rehearsal-studio/`. Test: `tests/api/test_studio.py`, `node --test tests/frontend/studio.test.mjs tests/frontend/engines.test.mjs`, end-to-end in browser reale `tests/e2e/studio.e2e.mjs` (upload, loop, marker, commenti, registrazione audio/video, sovraincisione). Nota: in `deploy/local` (Docker) il volume del DB nasconde `data/.htaccess`, quindi due test di `test_api.py::TestSecurity` falliscono solo lì (su Aruba lo copia il deploy).
 
 #### Testo a scorrimento, accordi sul testo, OCR (solo PHP/Aruba)
 
@@ -231,6 +254,11 @@ Frontend polls `GET /api/songs/{id}` every 2 s until `validated = True`.
 | `/add` | `AddEditSong.jsx` | all |
 | `/songs/:id/edit` | `AddEditSong.jsx` | all |
 | `/songs/:id/lyrics` | `LyricsEdit.jsx` | all |
+| `/studio` | `Studio.jsx` | all |
+| `/studio/new`, `/studio/:pid/edit` | `StudioProjectEdit.jsx` | all (modifica: creatore o admin) |
+| `/studio/:pid` | `StudioProject.jsx` | all |
+| `/studio/:pid/takes/:tid` | `StudioTake.jsx` | all |
+| `/studio/:pid/record` (`?over=<tid>`) | `StudioRecord.jsx` | all |
 | `/admin` | `Admin.jsx` | admin only |
 | `/profile` | `Profile.jsx` | all |
 

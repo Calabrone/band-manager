@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, FileText, Guitar, Maximize2, Music, Pencil, RefreshCw, Youtube } from 'lucide-react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, AudioLines, ExternalLink, FileText, Guitar, Maximize2, Music, Pencil, RefreshCw, Youtube } from 'lucide-react'
 import client from '../api/client'
 import LikeButton from '../components/LikeButton'
 import CommentSection from '../components/CommentSection'
@@ -139,6 +139,11 @@ export default function SongDetail() {
             <span className="flex items-center gap-1 text-xs text-yellow-400">
               <RefreshCw className="w-3 h-3 animate-spin" /> Validazione in corso...
             </span>
+          )}
+          {song.studio_project_id && (
+            <Link to={`/studio/${song.studio_project_id}`} className="flex items-center gap-1 text-xs text-purple-300 hover:text-purple-200">
+              <AudioLines className="w-3 h-3" /> Inedito · Materiale delle prove
+            </Link>
           )}
           {song.validation_error && song.unverified && (
             <span className="text-xs text-amber-400">
