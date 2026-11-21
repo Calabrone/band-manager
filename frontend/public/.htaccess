@@ -11,6 +11,15 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 # Sotto CGI/FastCGI Apache puo' scartare Authorization
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
+# Cache: i file che decidono la versione dell'app vanno sempre rivalidati
+# (no-cache = si puo' tenere la copia ma chiedendo al server con ETag, 304 se uguale).
+# assets/* ha l'hash nel nome e resta cacheabile.
+<IfModule mod_headers.c>
+    <FilesMatch "^(index\.html|sw\.js|registerSW\.js|manifest\.webmanifest)$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>
+
 # API: tutto /api/* al front controller PHP (data/ e src/ restano protetti da Require all denied)
 RewriteRule ^api/(?!data/|src/)(.*)$ api/index.php [L,QSA]
 
