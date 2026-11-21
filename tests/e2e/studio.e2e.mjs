@@ -496,6 +496,42 @@ try {
     if (movedPid) await api('DELETE', `/studio/projects/${movedPid}`, null, token)
     await api('DELETE', `/songs/${sid}`, null, token)
   }
+
+  // S12 audio grande su rete lenta: il player si sblocca in streaming, poi passa al motore preciso a download finito
+  const bigWav = path.join(tmp, 'grande.wav')
+  makeWav(bigWav, 270)                                    // ~12 MB
+  const bigFd = new FormData()
+  bigFd.append('kind', 'audio'); bigFd.append('title', 'Audio grande'); bigFd.append('duration_ms', '270000')
+  bigFd.append('file', new Blob([fs.readFileSync(bigWav)]), 'grande.wav')
+  const bigRes = await fetch(`${API}/studio/projects/${pid}/takes`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: bigFd })
+  const bigId = (await bigRes.json()).id
+  check("audio grande: caricato senza forma d'onda", bigRes.status === 201 && (await api('GET', `/studio/takes/${bigId}`, null, token)).data.has_peaks === false)
+  await cdp.send('Network.enable')
+  await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 50, downloadThroughput: 400 * 1024, uploadThroughput: -1 })
+  const t0 = Date.now()
+  await go(`/studio/${pid}/takes/${bigId}`)
+  await waitFor(`[...document.querySelectorAll('button')].some(b => b.title === 'Play' && !b.disabled)`, 40000, 'player sbloccato in streaming')
+  const readyAfter = Date.now() - t0
+  check('audio grande: player cliccabile in streaming, molto prima del download completo (~30 s)', readyAfter < 12000, `${readyAfter} ms`)
+  await clickTitle('Play')
+  await sleep(1500)
+  for (let i = 0; i < 100 && !((await clock())?.pos > 0.5); i++) await sleep(200)   // avvio dello streaming (fino a 20 s)
+  const bigPos = (await clock()).pos
+  check('audio grande: la riproduzione in streaming avanza', bigPos > 0.5, `pos ${bigPos}`)
+  await clickTitle('Pausa')
+  // a download finito il file viene decodificato: la forma d'onda mancante si salva sul server
+  let bigSaved = false
+  for (let i = 0; i < 100 && !bigSaved; i++) {
+    bigSaved = (await api('GET', `/studio/takes/${bigId}`, null, token)).data.has_peaks
+    if (!bigSaved) await sleep(1000)
+  }
+  check("audio grande: a download finito passa al motore preciso (forma d'onda salvata)", bigSaved)
+  await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 })
+  await clickTitle('Play')
+  await sleep(1500)
+  const afterSwap = (await clock()).pos
+  check('audio grande: dopo il cambio di motore riparte dalla stessa posizione e avanza', afterSwap > bigPos + 0.5 && afterSwap < bigPos + 6, `prima ${bigPos}, dopo ${afterSwap}`)
+  await clickTitle('Pausa')
 } catch (err) {
   check('ESECUZIONE', false, err.message)
 } finally {

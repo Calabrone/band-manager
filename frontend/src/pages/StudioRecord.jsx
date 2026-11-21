@@ -21,7 +21,8 @@ import {
 } from '../lib/recorder'
 import { clampOffset, computeSync, estimateLatencyMs } from '../lib/sync'
 
-const COUNT_KEY = 'studio_countin'
+// Preferenze del tempo in registrazione: distinte da quelle del conteggio del player (chiave 'studio_countin')
+const COUNT_KEY = 'studio_record_tempo'
 const LATENCY_KEY = 'studio_latency_ms'
 
 const COUNT_DEFAULTS = { enabled: false, beatsPerBar: 4, bars: 1, everyLap: false, metronome: false, volume: 0.5 }

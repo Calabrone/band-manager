@@ -7,6 +7,12 @@ import { baseTimeFor } from '../../lib/sync'
 const NO_LOOP = { a: 0, b: 0, active: false }
 const DRIFT_MS = 40
 const CHECK_EVERY_MS = 250
+// Per un audio si prova prima lo streaming con <audio> (pronto in un attimo); se i metadati non arrivano entro questo tempo
+// si aspetta il download completo, come prima.
+const STREAM_WAIT_MS = 8000
+// Lo streaming parte da solo con i metadati; il download completo comincia appena arrivano (o dopo questo tempo),
+// così le due richieste non si contendono la banda proprio all'inizio.
+const BUFFER_START_MS = 1500
 const UNPLAYABLE = 'Questo dispositivo non riesce a riprodurre il formato: scarica il file per ascoltarlo.'
 
 /**
@@ -28,6 +34,7 @@ export default function usePlayback(take, videoRef) {
   const base = useRef(null)
   const playingRef = useRef(false)
   const takeRef = useRef(take)
+  const volumeRef = useRef(1)
   takeRef.current = take
   const offsetRef = useRef(take.offset_ms || 0)
   const loopRef = useRef(NO_LOOP)
@@ -49,6 +56,98 @@ export default function usePlayback(take, videoRef) {
     setPlaying(false)
     playingRef.current = false
     setLocalPeaks(null)
+    let setMainReady
+    const mainReady = new Promise((r) => { setMainReady = r })
+
+    function releaseElement(el) {
+      el.pause()
+      el.removeAttribute('src')
+      el.load()
+    }
+
+    /** Collega gli eventi del motore principale allo stato del player. */
+    function wireMain(m) {
+      m.on('play', () => {
+        playingRef.current = true
+        setPlaying(true)
+      })
+      m.on('pause', () => {
+        playingRef.current = false
+        setPlaying(false)
+        base.current?.pause()
+      })
+      m.on('ended', () => base.current?.pause())
+    }
+
+    /** Forma d'onda e durata dal buffer decodificato; la forma d'onda mancante sul server si salva una volta sola. */
+    function applyDecoded(buffer) {
+      setDuration(Math.round(buffer.duration * 1000))
+      if (!t.peaks) {
+        const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i))
+        const peaks = computePeaks(channels, buffer.sampleRate)
+        setLocalPeaks(peaks)
+        if (Number.isInteger(t.id) && peaks.length) {
+          client.put(`/studio/takes/${t.id}/analysis`, { peaks, duration_ms: Math.round(buffer.duration * 1000) }).catch(() => {})
+        }
+      }
+    }
+
+    /** <audio> in streaming: risolve con l'elemento appena ci sono i metadati, con null se non arrivano o c'è un errore. */
+    function openStreaming() {
+      return new Promise((resolve) => {
+        const el = new Audio()
+        el.preload = 'metadata'
+        let done = false
+        let timer = null
+        const finish = (ok) => {
+          if (done) return
+          done = true
+          clearTimeout(timer)
+          el.removeEventListener('loadedmetadata', onOk)
+          el.removeEventListener('error', onBad)
+          ctrl.signal.removeEventListener('abort', onBad)
+          if (ok) resolve(el)
+          else {
+            releaseElement(el)
+            resolve(null)
+          }
+        }
+        const onOk = () => finish(true)
+        const onBad = () => finish(false)
+        el.addEventListener('loadedmetadata', onOk)
+        el.addEventListener('error', onBad)
+        ctrl.signal.addEventListener('abort', onBad)
+        timer = setTimeout(onBad, STREAM_WAIT_MS)
+        el.src = t.file_url
+      })
+    }
+
+    /** Quando il file è decodificato passa dallo streaming al motore Web Audio (loop senza stacchi), senza interrompere l'ascolto. */
+    function upgradeWhenReady(oldEngine, el, buffer) {
+      const swap = () => {
+        if (cancelled || main.current !== oldEngine) return
+        const pos = oldEngine.position()
+        const engine = createBufferEngine({ ctx: getAudioContext(), buffer })
+        engine.setLoop(loopRef.current)
+        engine.setVolume(volumeRef.current)
+        engine.seek(pos)
+        wireMain(engine)
+        main.current = engine
+        oldEngine.destroy()
+        releaseElement(el)
+        applyDecoded(buffer)
+      }
+      mainReady.then(() => {
+        if (cancelled) return
+        // se sta suonando si aspetta la prossima pausa: il cambio di motore non deve mai tagliare l'audio
+        if (oldEngine.isPlaying()) {
+          const off = oldEngine.on('pause', () => {
+            off()
+            swap()
+          })
+        } else swap()
+      })
+    }
 
     function watchElement(el) {
       const onMeta = () => {
@@ -78,25 +177,43 @@ export default function usePlayback(take, videoRef) {
         return createMediaEngine(el)
       }
       if (engineKindFor(t) === 'buffer') {
-        try {
-          const ctx = getAudioContext()
-          const buffer = await loadBuffer(ctx, t.file_url, { signal: ctrl.signal })
-          if (cancelled) return null
-          setDuration(Math.round(buffer.duration * 1000))
-          if (!t.peaks) {
-            const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i))
-            const peaks = computePeaks(channels, buffer.sampleRate)
-            setLocalPeaks(peaks)
-            // Solo la prima volta: si salva sul server, così le aperture successive trovano la forma d'onda già pronta
-            if (Number.isInteger(t.id) && peaks.length) {
-              client.put(`/studio/takes/${t.id}/analysis`, { peaks, duration_ms: Math.round(buffer.duration * 1000) }).catch(() => {})
-            }
-          }
-          return createBufferEngine({ ctx, buffer })
-        } catch (err) {
-          if (cancelled || err?.name === 'AbortError') return null
-          // formato non decodificabile: si prova con l'elemento <audio>
+        const ctx = getAudioContext()
+        // Prima lo streaming (metadati), poi download+decodifica: vince chi è pronto prima (di solito lo streaming)
+        let startBuffer
+        const bufferGo = new Promise((r) => { startBuffer = r })
+        const bufferP = bufferGo
+          .then(() => loadBuffer(ctx, t.file_url, { signal: ctrl.signal }))
+          .catch((err) => (err?.name === 'AbortError' ? 'aborted' : null))
+        const streamP = openStreaming()
+        streamP.then(startBuffer)
+        setTimeout(startBuffer, BUFFER_START_MS)
+        const first = await Promise.race([bufferP.then((buffer) => ({ buffer })), streamP.then((streamEl) => ({ streamEl }))])
+        if (cancelled) return null
+        if (first.buffer === 'aborted') return null
+        if (first.buffer) {
+          streamP.then((streamEl) => streamEl && releaseElement(streamEl))
+          applyDecoded(first.buffer)
+          return createBufferEngine({ ctx, buffer: first.buffer })
         }
+        const streamEl = first.streamEl ?? (await streamP)
+        if (cancelled) return null
+        if (streamEl) {
+          watchElement(streamEl)
+          cleanups.push(() => releaseElement(streamEl))
+          const engine = createMediaEngine(streamEl)
+          bufferP.then((buffer) => {
+            if (buffer && buffer !== 'aborted' && !cancelled) upgradeWhenReady(engine, streamEl, buffer)
+          })
+          return engine
+        }
+        // niente streaming: si aspetta il download completo
+        const buffer = await bufferP
+        if (cancelled || buffer === 'aborted') return null
+        if (buffer) {
+          applyDecoded(buffer)
+          return createBufferEngine({ ctx, buffer })
+        }
+        // formato non decodificabile: si prova con l'elemento <audio>
       }
       const el = new Audio()
       el.preload = 'auto'
@@ -138,18 +255,10 @@ export default function usePlayback(take, videoRef) {
         }
         main.current = m
         base.current = b
-        m.on('play', () => {
-          playingRef.current = true
-          setPlaying(true)
-        })
-        m.on('pause', () => {
-          playingRef.current = false
-          setPlaying(false)
-          base.current?.pause()
-        })
-        m.on('ended', () => base.current?.pause())
+        wireMain(m)
         m.setLoop(loopRef.current)
         setStatus('ready')
+        setMainReady()
       } catch (err) {
         if (!cancelled) {
           setError(err?.message || UNPLAYABLE)
@@ -250,6 +359,7 @@ export default function usePlayback(take, videoRef) {
       },
       setVolume(which, v) {
         const e = which === 'base' ? base.current : main.current
+        if (which !== 'base') volumeRef.current = v
         e?.setVolume(v)
       },
       getPosition: () => main.current?.position() ?? 0,
