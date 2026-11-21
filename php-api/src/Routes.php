@@ -67,6 +67,7 @@ final class Routes
             ['GET', '#^/studio/takes/(?<tid>\d+)$#', 'Studio::getTake', 'user'],
             ['PUT', '#^/studio/takes/(?<tid>\d+)$#', 'Studio::updateTake', 'user'],
             ['DELETE', '#^/studio/takes/(?<tid>\d+)$#', 'Studio::deleteTake', 'user'],
+            ['PUT', '#^/studio/takes/(?<tid>\d+)/analysis$#', 'Studio::setAnalysis', 'user'],
             // Accesso 'none': <audio>/<video> non mandano Authorization, vale la firma in query
             ['GET', '#^/studio/takes/(?<tid>\d+)/file$#', 'Studio::takeFile', 'none'],
             ['GET', '#^/studio/takes/(?<tid>\d+)/markers$#', 'Studio::listMarkers', 'user'],

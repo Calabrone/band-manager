@@ -228,6 +228,30 @@ class TestMoveSong:
         f = httpx.get(full["file_url"], timeout=60)
         assert f.status_code == 200 and f.content == M4A
 
+    def test_analysis_is_saved_once_by_anyone(self, member, member2, song, projects):
+        song_audio(member, song["id"])
+        pid = move(member, song["id"], projects).json()["project_id"]
+        tid = member.get(f"/studio/projects/{pid}").json()["takes"][0]["id"]
+        assert member.get(f"/studio/takes/{tid}").json()["has_peaks"] is False
+        peaks = [0, 10, 255, 40]
+        r = member2.put(f"/studio/takes/{tid}/analysis", json={"peaks": peaks, "duration_ms": 4000})
+        assert r.status_code == 200, r.text
+        got = member.get(f"/studio/takes/{tid}").json()
+        assert got["has_peaks"] is True and got["peaks"] == peaks and got["duration_ms"] == 4000
+        # una tantum: un secondo invio non sovrascrive
+        member.put(f"/studio/takes/{tid}/analysis", json={"peaks": [1, 2, 3], "duration_ms": 9})
+        again = member.get(f"/studio/takes/{tid}").json()
+        assert again["peaks"] == peaks and again["duration_ms"] == 4000
+
+    def test_analysis_validation(self, member, song, projects):
+        song_audio(member, song["id"])
+        pid = move(member, song["id"], projects).json()["project_id"]
+        tid = member.get(f"/studio/projects/{pid}").json()["takes"][0]["id"]
+        assert member.put(f"/studio/takes/{tid}/analysis", json={"peaks": [999]}).status_code == 400
+        assert member.put(f"/studio/takes/{tid}/analysis", json={"peaks": "x"}).status_code == 400
+        assert member.put(f"/studio/takes/{tid}/analysis", json={"duration_ms": 0}).status_code == 400
+        assert member.put("/studio/takes/99999999/analysis", json={"peaks": [1]}).status_code == 404
+
     def test_admin_moves_and_proposer_keeps_ownership(self, admin, member, song, projects):
         r = move(admin, song["id"], projects)
         assert r.status_code == 200, r.text

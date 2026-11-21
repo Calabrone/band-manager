@@ -192,6 +192,7 @@ GET/POST /api/studio/projects/{pid}/comments → commenti del brano di prova { c
 PUT/DELETE /api/studio/projects/{pid}/comments/{cid} → PUT solo l'autore, DELETE autore o admin
 GET/POST /api/studio/projects/{pid}/videos → link video del brano di prova (come le cover)
 PUT/DELETE /api/studio/projects/{pid}/videos/{vid} → solo chi l'ha inserito
+PUT  /api/studio/takes/{tid}/analysis    → { peaks:[0-255], duration_ms } salva la forma d'onda calcolata dal browser; una tantum (non sovrascrive), chiunque; lo fa `usePlayback` alla prima apertura di un contenuto senza picchi (es. audio spostato da una cover)
 POST /api/songs/{id}/to-studio          → { project_id } sposta una cover nelle Prove (solo chi l'ha proposta o admin)
 
 GET  /api/admin/users

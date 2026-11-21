@@ -574,6 +574,33 @@ final class Studio
         Http::send(self::takeOut(self::take((int)$t['id']), true));
     }
 
+    /**
+     * Salva forma d'onda e durata calcolate dal browser alla prima apertura di un contenuto che ne e' privo
+     * (es. un audio arrivato da una cover). Una tantum: i valori gia' presenti non si toccano, e chiunque puo'
+     * farlo perche' sono dati derivati dal file, non contenuto dell'autore.
+     */
+    public static function setAnalysis(array $p, array $user): void
+    {
+        $t = self::take($p['tid']);
+        $b = self::json();
+        $peaks = $t['peaks'];
+        if ($peaks === null && array_key_exists('peaks', $b)) {
+            $peaks = is_array($b['peaks']) ? self::cleanPeaks(json_encode($b['peaks'])) : null;
+            if ($peaks === null) {
+                Http::fail(400, 'Forma d\'onda non valida');
+            }
+        }
+        $duration = self::n($t['duration_ms']);
+        if ($duration === null && array_key_exists('duration_ms', $b)) {
+            if (!is_int($b['duration_ms']) || $b['duration_ms'] < 1 || $b['duration_ms'] > self::MAX_DURATION_MS) {
+                Http::fail(400, 'Durata non valida');
+            }
+            $duration = $b['duration_ms'];
+        }
+        Db::exec('UPDATE studio_take SET peaks = ?, duration_ms = ? WHERE id = ?', [$peaks, $duration, $t['id']]);
+        Http::send(self::takeOut(self::take((int)$t['id']), true));
+    }
+
     /** Elimina un contenuto: file, marker, commenti; le sovraincisioni costruite sopra restano come contenuti normali. */
     private static function removeTake(array $t): void
     {

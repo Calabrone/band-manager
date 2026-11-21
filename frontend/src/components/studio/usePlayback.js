@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import client from '../../api/client'
 import { createBufferEngine, createMediaEngine, engineKindFor, getAudioContext, loadBuffer } from '../../lib/engines'
 import { computePeaks } from '../../lib/peaks'
 import { baseTimeFor } from '../../lib/sync'
@@ -84,7 +85,12 @@ export default function usePlayback(take, videoRef) {
           setDuration(Math.round(buffer.duration * 1000))
           if (!t.peaks) {
             const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i))
-            setLocalPeaks(computePeaks(channels, buffer.sampleRate))
+            const peaks = computePeaks(channels, buffer.sampleRate)
+            setLocalPeaks(peaks)
+            // Solo la prima volta: si salva sul server, così le aperture successive trovano la forma d'onda già pronta
+            if (Number.isInteger(t.id) && peaks.length) {
+              client.put(`/studio/takes/${t.id}/analysis`, { peaks, duration_ms: Math.round(buffer.duration * 1000) }).catch(() => {})
+            }
           }
           return createBufferEngine({ ctx, buffer })
         } catch (err) {

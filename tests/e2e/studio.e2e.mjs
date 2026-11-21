@@ -484,6 +484,14 @@ try {
     const movedProj = (await api('GET', `/studio/projects/${movedPid}`, null, token)).data
     check('spostamento: il brano di prova ha testo, commento e audio della cover', movedProj.lyrics === '[C]Testo della cover' && movedProj.takes.length === 1 && (await hasText('Audio da portare')), JSON.stringify({ lyrics: movedProj.lyrics, takes: movedProj.takes.length }))
     check('spostamento: la cover non esiste più', (await api('GET', `/songs/${sid}`, null, token)).status === 404)
+    // La forma d'onda dell'audio spostato si calcola alla prima apertura e si salva sul server
+    const movedTake = movedProj.takes[0]
+    check("spostamento: l'audio arriva senza forma d'onda", movedTake.has_peaks === false)
+    await go(`/studio/${movedPid}/takes/${movedTake.id}`)
+    await waitFor(`[...document.querySelectorAll('button')].some(b => b.title === 'Play' && !b.disabled)`, 20000, "player dell'audio spostato")
+    let saved = false
+    for (let i = 0; i < 25 && !saved; i++) { saved = (await api('GET', `/studio/takes/${movedTake.id}`, null, token)).data.has_peaks; if (!saved) await sleep(200) }
+    check("spostamento: aprendolo, la forma d'onda viene salvata sul server", saved)
   } finally {
     if (movedPid) await api('DELETE', `/studio/projects/${movedPid}`, null, token)
     await api('DELETE', `/songs/${sid}`, null, token)
