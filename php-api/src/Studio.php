@@ -138,6 +138,7 @@ final class Studio
             'created_by_id' => (int)$p['created_by_id'],
             'created_by' => Routes::username((int)$p['created_by_id']),
             'song_id' => self::n($p['song_id']),
+            'has_lyrics' => trim((string)($p['lyrics'] ?? '')) !== '',
             'take_count' => (int)$take['n'],
             'total_bytes' => (int)$take['bytes'],
             'created_at' => Db::iso($p['created_at']),
@@ -281,6 +282,7 @@ final class Studio
             [$pr['id']]
         );
         $out = self::projectOut($pr);
+        $out['lyrics'] = $pr['lyrics'];
         $out['takes'] = array_map(fn(array $t) => self::takeOut($t), $takes);
         Http::send($out);
     }
@@ -336,12 +338,14 @@ final class Studio
                     : 'Solo un brano in stato "Pronto" si può promuovere');
             }
             Routes::assertNotDuplicate($artist, $title);
+            $hasLyrics = trim((string)$pr['lyrics']) !== '';
             $now = Db::now();
             $songId = Db::insert(
-                "INSERT INTO song (artist, title, category, validated, validation_error, unverified, lyrics_source,
+                "INSERT INTO song (artist, title, category, validated, validation_error, unverified, lyrics, lyrics_source,
                                    proposed_by_id, last_modified_by_id, created_at, updated_at)
-                 VALUES (?, ?, ?, 1, NULL, 1, 'manual', ?, ?, ?, ?)",
-                [$artist, $title, $b['category'], $user['id'], $user['id'], $now, $now]
+                 VALUES (?, ?, ?, 1, NULL, 1, ?, ?, ?, ?, ?, ?)",
+                [$artist, $title, $b['category'], $hasLyrics ? $pr['lyrics'] : null, $hasLyrics ? 'manual' : null,
+                 $user['id'], $user['id'], $now, $now]
             );
             Db::exec(
                 "UPDATE studio_project SET status = 'promosso', song_id = ?, updated_at = ?, last_activity_at = ? WHERE id = ?",
@@ -365,6 +369,8 @@ final class Studio
         foreach (Db::all('SELECT * FROM studio_take WHERE project_id = ?', [$pr['id']]) as $t) {
             self::removeTake($t);
         }
+        Db::exec('DELETE FROM studio_project_comment WHERE project_id = ?', [$pr['id']]);
+        Db::exec('DELETE FROM studio_project_video WHERE project_id = ?', [$pr['id']]);
         Db::exec('DELETE FROM studio_project WHERE id = ?', [$pr['id']]);
         Http::send(null, 204);
     }
@@ -718,5 +724,285 @@ final class Studio
         Db::exec('DELETE FROM studio_comment WHERE id = ?', [$c['id']]);
         self::touch((int)$t['project_id']);
         Http::send(null, 204);
+    }
+
+    // ── Testo del brano di prova ─────────────────────────────────────────────
+
+    /** Il testo lo modificano tutti gli utenti autenticati (come per le cover). Testo vuoto = nessun testo. */
+    public static function updateLyrics(array $p, array $user): void
+    {
+        $b = Http::body(['lyrics' => 'string']);
+        $pr = self::project($p['pid']);
+        $lyrics = Routes::cleanLyrics($b['lyrics']);
+        if (mb_strlen($lyrics) > Routes::LYRICS_MAX) {
+            Http::fail(400, 'Testo troppo lungo (max ' . Routes::LYRICS_MAX . ' caratteri)');
+        }
+        $now = Db::now();
+        Db::exec(
+            'UPDATE studio_project SET lyrics = ?, updated_at = ?, last_activity_at = ? WHERE id = ?',
+            [trim($lyrics) === '' ? null : $lyrics, $now, $now, $pr['id']]
+        );
+        self::getProject($p, $user);
+    }
+
+    /** Legge testo e accordi da una foto. Non salva nulla: decide l'editor. */
+    public static function ocrLyrics(array $p, array $user): void
+    {
+        self::project($p['pid']);
+        Http::send(Routes::ocrUpload());
+    }
+
+    // ── Commenti del brano di prova ──────────────────────────────────────────
+
+    private static function projectCommentOut(array $c): array
+    {
+        return [
+            'id' => (int)$c['id'],
+            'project_id' => (int)$c['project_id'],
+            'user_id' => (int)$c['user_id'],
+            'username' => Routes::username((int)$c['user_id']),
+            'content' => $c['content'],
+            'parent_id' => $c['parent_id'] === null ? null : (int)$c['parent_id'],
+            'created_at' => Db::iso($c['created_at']),
+            'updated_at' => Db::iso($c['updated_at']),
+        ];
+    }
+
+    private static function projectComment(array $p): array
+    {
+        $c = Db::one('SELECT * FROM studio_project_comment WHERE id = ? AND project_id = ?', [$p['cid'], $p['pid']]);
+        if ($c === null) {
+            Http::fail(404, 'Commento non trovato');
+        }
+        return $c;
+    }
+
+    public static function listProjectComments(array $p, array $user): void
+    {
+        self::project($p['pid']);
+        $rows = Db::all('SELECT * FROM studio_project_comment WHERE project_id = ? ORDER BY created_at, id', [$p['pid']]);
+        Http::send(array_map([self::class, 'projectCommentOut'], $rows));
+    }
+
+    public static function createProjectComment(array $p, array $user): void
+    {
+        $b = Http::body(['content' => 'string', 'parent_id' => '?int']);
+        $pr = self::project($p['pid']);
+        $content = self::text($b['content'], self::COMMENT_MAX, 'Il commento', true);
+        if ($b['parent_id'] !== null) {
+            $parent = Db::one('SELECT * FROM studio_project_comment WHERE id = ?', [$b['parent_id']]);
+            if ($parent === null || (int)$parent['project_id'] !== (int)$pr['id']) {
+                Http::fail(400, 'Commento padre non valido');
+            }
+            if ($parent['parent_id'] !== null) {
+                Http::fail(400, 'Nidificazione massima raggiunta');
+            }
+        }
+        $now = Db::now();
+        $id = Db::insert(
+            'INSERT INTO studio_project_comment (project_id, user_id, content, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+            [$pr['id'], $user['id'], $content, $b['parent_id'], $now, $now]
+        );
+        self::touch((int)$pr['id']);
+        Http::send(self::projectCommentOut(Db::one('SELECT * FROM studio_project_comment WHERE id = ?', [$id])), 201);
+    }
+
+    public static function updateProjectComment(array $p, array $user): void
+    {
+        self::project($p['pid']);
+        $c = self::projectComment($p);
+        self::requireAuthor($c, $user);
+        $b = Http::body(['content' => 'string']);
+        $content = self::text($b['content'], self::COMMENT_MAX, 'Il commento', true);
+        Db::exec('UPDATE studio_project_comment SET content = ?, updated_at = ? WHERE id = ?', [$content, Db::now(), $c['id']]);
+        Http::send(self::projectCommentOut(Db::one('SELECT * FROM studio_project_comment WHERE id = ?', [$c['id']])));
+    }
+
+    /** Elimina l'autore o l'admin (come per le cover); un commento principale porta via le risposte. */
+    public static function deleteProjectComment(array $p, array $user): void
+    {
+        self::project($p['pid']);
+        $c = self::projectComment($p);
+        if ((int)$c['user_id'] !== (int)$user['id'] && $user['role'] !== 'admin') {
+            Http::fail(403, 'Non puoi eliminare questo commento');
+        }
+        if ($c['parent_id'] === null) {
+            Db::exec('DELETE FROM studio_project_comment WHERE parent_id = ?', [$c['id']]);
+        }
+        Db::exec('DELETE FROM studio_project_comment WHERE id = ?', [$c['id']]);
+        Http::send(null, 204);
+    }
+
+    // ── Link video del brano di prova ────────────────────────────────────────
+
+    private static function projectVideoOut(array $v): array
+    {
+        return [
+            'id' => (int)$v['id'],
+            'project_id' => (int)$v['project_id'],
+            'user_id' => (int)$v['user_id'],
+            'username' => Routes::username((int)$v['user_id']),
+            'url' => $v['url'],
+            'title' => $v['title'],
+            'recorded_on' => $v['recorded_on'],
+            'note' => $v['note'],
+            'thumb_url' => $v['thumb_url'],
+            'cover_thumb' => Routes::videoThumb($v),
+            'created_at' => Db::iso($v['created_at']),
+            'updated_at' => Db::iso($v['updated_at']),
+        ];
+    }
+
+    private static function projectVideo(array $p): array
+    {
+        $v = Db::one('SELECT * FROM studio_project_video WHERE id = ? AND project_id = ?', [$p['vid'], $p['pid']]);
+        if ($v === null) {
+            Http::fail(404, 'Video non trovato');
+        }
+        return $v;
+    }
+
+    public static function listProjectVideos(array $p, array $user): void
+    {
+        self::project($p['pid']);
+        $rows = Db::all('SELECT * FROM studio_project_video WHERE project_id = ? ORDER BY recorded_on DESC, id DESC', [$p['pid']]);
+        Http::send(array_map([self::class, 'projectVideoOut'], $rows));
+    }
+
+    public static function createProjectVideo(array $p, array $user): void
+    {
+        $pr = self::project($p['pid']);
+        [$url, $title, $date, $note, $thumb] = Routes::videoCreateFields();
+        $now = Db::now();
+        $id = Db::insert(
+            'INSERT INTO studio_project_video (project_id, user_id, url, title, recorded_on, note, thumb_url, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [$pr['id'], $user['id'], $url, $title, $date, $note, $thumb, $now, $now]
+        );
+        self::touch((int)$pr['id']);
+        Http::send(self::projectVideoOut(Db::one('SELECT * FROM studio_project_video WHERE id = ?', [$id])), 201);
+    }
+
+    public static function updateProjectVideo(array $p, array $user): void
+    {
+        self::project($p['pid']);
+        $v = self::projectVideo($p);
+        self::requireAuthor($v, $user);
+        [$title, $date, $note] = Routes::videoEditFields($v);
+        Db::exec(
+            'UPDATE studio_project_video SET title = ?, recorded_on = ?, note = ?, updated_at = ? WHERE id = ?',
+            [$title, $date, $note, Db::now(), $v['id']]
+        );
+        Http::send(self::projectVideoOut(Db::one('SELECT * FROM studio_project_video WHERE id = ?', [$v['id']])));
+    }
+
+    public static function deleteProjectVideo(array $p, array $user): void
+    {
+        self::project($p['pid']);
+        $v = self::projectVideo($p);
+        self::requireAuthor($v, $user);
+        Db::exec('DELETE FROM studio_project_video WHERE id = ?', [$v['id']]);
+        Http::send(null, 204);
+    }
+
+    // ── Spostamento di un brano in "Prove" ───────────────────────────────────
+
+    /**
+     * Porta un brano delle cover nelle prove con testo, commenti, link video e audio, poi elimina il brano.
+     * Se il brano era stato promosso da un brano di prova, torna in quel progetto (stato "idea").
+     * Atomico: transazione sul DB e, se qualcosa fallisce, i file audio tornano nella cartella d'origine.
+     */
+    public static function moveSong(array $p, array $user): void
+    {
+        $songId = (int)$p['id'];
+        $pdo = Db::pdo();
+        $moved = [];   // [da, a] dei file spostati, per il ripristino
+        $pdo->exec('BEGIN IMMEDIATE');
+        try {
+            $song = Db::one('SELECT * FROM song WHERE id = ?', [$songId]);
+            if ($song === null) {
+                Http::fail(404, 'Brano non trovato');
+            }
+            if ((int)$song['proposed_by_id'] !== (int)$user['id'] && $user['role'] !== 'admin') {
+                Http::fail(403, "Solo chi ha proposto il brano o l'admin può spostarlo in Prove");
+            }
+            $now = Db::now();
+            $hasLyrics = trim((string)$song['lyrics']) !== '';
+            $pr = Db::one('SELECT * FROM studio_project WHERE song_id = ?', [$songId]);
+            if ($pr !== null) {
+                Db::exec(
+                    "UPDATE studio_project SET song_id = NULL, status = 'idea', lyrics = ?, updated_at = ?, last_activity_at = ? WHERE id = ?",
+                    [$hasLyrics ? $song['lyrics'] : $pr['lyrics'], $now, $now, $pr['id']]
+                );
+                $pid = (int)$pr['id'];
+            } else {
+                $pid = Db::insert(
+                    "INSERT INTO studio_project (title, status, lyrics, created_by_id, created_at, updated_at, last_activity_at)
+                     VALUES (?, 'idea', ?, ?, ?, ?, ?)",
+                    [$song['title'], $hasLyrics ? $song['lyrics'] : null, $song['proposed_by_id'], $now, $now, $now]
+                );
+            }
+
+            // Commenti: prima i principali, poi le risposte, con la mappa vecchio id -> nuovo id
+            $map = [];
+            $comments = Db::all('SELECT * FROM comment WHERE song_id = ? ORDER BY created_at, id', [$songId]);
+            foreach ([true, false] as $top) {
+                foreach ($comments as $c) {
+                    if (($c['parent_id'] === null) !== $top) {
+                        continue;
+                    }
+                    $parent = $c['parent_id'] === null ? null : ($map[(int)$c['parent_id']] ?? null);
+                    $map[(int)$c['id']] = Db::insert(
+                        'INSERT INTO studio_project_comment (project_id, user_id, content, parent_id, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, ?, ?)',
+                        [$pid, $c['user_id'], $c['content'], $parent, $c['created_at'], $c['updated_at']]
+                    );
+                }
+            }
+
+            Db::exec(
+                'INSERT INTO studio_project_video (project_id, user_id, url, title, recorded_on, note, thumb_url, created_at, updated_at)
+                 SELECT ?, user_id, url, title, recorded_on, note, thumb_url, created_at, updated_at FROM song_video WHERE song_id = ?',
+                [$pid, $songId]
+            );
+
+            // Audio -> contenuti audio del brano di prova (stesso file, spostato di cartella)
+            $dir = Media::studioDir();
+            if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+                Http::fail(500, 'Cartella dei contenuti non disponibile');
+            }
+            foreach (Db::all('SELECT * FROM song_audio WHERE song_id = ? ORDER BY id', [$songId]) as $a) {
+                $from = Media::audioPath($a['stored_name']);
+                $to = Media::studioPath($a['stored_name']);
+                if (!is_file($from) || !rename($from, $to)) {
+                    throw new RuntimeException('Spostamento del file audio non riuscito: ' . $a['title']);
+                }
+                $moved[] = [$from, $to];
+                $day = DateTime::createFromFormat('Y-m-d', (string)$a['recorded_on']);
+                $desc = ($day ? 'Registrato il ' . $day->format('d/m/Y') : 'Registrato il ' . $a['recorded_on'])
+                    . ($a['note'] !== null && $a['note'] !== '' ? "\n" . $a['note'] : '');
+                Db::exec(
+                    "INSERT INTO studio_take (project_id, user_id, title, description, kind, original_name, stored_name, ext, mime, size,
+                                              recorded_in_app, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, 'audio', ?, ?, ?, ?, ?, 0, ?, ?)",
+                    [$pid, $a['user_id'], $a['title'], mb_substr($desc, 0, self::DESC_TAKE_MAX), $a['original_name'], $a['stored_name'],
+                     $a['ext'], Media::AUDIO_TYPES[$a['ext']] ?? 'application/octet-stream', $a['size'], $a['created_at'], $a['updated_at']]
+                );
+            }
+
+            Db::exec('DELETE FROM comment WHERE song_id = ?', [$songId]);
+            Db::exec('DELETE FROM songlike WHERE song_id = ?', [$songId]);
+            Db::exec('DELETE FROM song_video WHERE song_id = ?', [$songId]);
+            Db::exec('DELETE FROM song_audio WHERE song_id = ?', [$songId]);
+            Db::exec('DELETE FROM song WHERE id = ?', [$songId]);
+            $pdo->exec('COMMIT');
+        } catch (Throwable $e) {
+            $pdo->exec('ROLLBACK');
+            foreach (array_reverse($moved) as [$from, $to]) {
+                @rename($to, $from);
+            }
+            throw $e;
+        }
+        Http::send(['project_id' => $pid]);
     }
 }

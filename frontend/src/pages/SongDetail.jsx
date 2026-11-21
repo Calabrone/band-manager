@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, AudioLines, ExternalLink, FileText, Guitar, Maximize2, Music, Pencil, RefreshCw, Youtube } from 'lucide-react'
+import { ArrowLeft, AudioLines, ExternalLink, FileText, Guitar, Layers, Maximize2, Music, Pencil, RefreshCw, Youtube } from 'lucide-react'
 import client from '../api/client'
+import { useAuth } from '../context/AuthContext'
+import ConfirmDialog from '../components/ConfirmDialog'
 import LikeButton from '../components/LikeButton'
 import CommentSection from '../components/CommentSection'
 import SongMedia from '../components/SongMedia'
@@ -24,12 +26,14 @@ const CATEGORY_COLORS = {
 export default function SongDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { user, isAdmin } = useAuth()
   const [song, setSong] = useState(null)
   const [loading, setLoading] = useState(true)
   const [enriching, setEnriching] = useState(false)
   const [chordsEnabled, setChordsEnabled] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [pickingCover, setPickingCover] = useState(false)
+  const [moving, setMoving] = useState(null) // null | { message, busy, error }
 
   useEffect(() => {
     let cancelled = false
@@ -69,6 +73,49 @@ export default function SongDetail() {
     }
   }
 
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
+
+  // Riepilogo di ciò che viaggia con il brano, letto dagli stessi endpoint della pagina
+  async function openMove() {
+    setMoving({ message: 'Preparo il riepilogo…', busy: true, error: '' })
+    let comments = []
+    let videos = []
+    let audios = []
+    try {
+      ;[comments, videos, audios] = (await Promise.all([
+        client.get(`/songs/${id}/comments`), client.get(`/songs/${id}/videos`), client.get(`/songs/${id}/audios`),
+      ])).map((r) => r.data)
+    } catch {
+      // il riepilogo è solo informativo: si può spostare lo stesso
+    }
+    const carried = [
+      song.lyrics ? 'il testo' : null,
+      comments.length ? plural(comments.length, 'commento', 'commenti') : null,
+      audios.length ? plural(audios.length, 'audio', 'audio') : null,
+      videos.length ? plural(videos.length, 'video', 'video') : null,
+    ].filter(Boolean)
+    const back = song.studio_project_id ? ' Il brano torna nel brano di prova da cui era stato promosso.' : ' Diventa un brano di prova in stato «Idea».'
+    setMoving({
+      busy: false,
+      error: '',
+      message: `«${song.title}» passa nelle Prove${carried.length ? ` con ${carried.join(', ')}` : ''}.${back} `
+        + "Si perdono i like, la copertina, l'artista, la tablatura, gli accordi automatici e la sezione (Proposta, Da provare, In scaletta): il brano non sarà più nella lista.",
+    })
+  }
+
+  async function doMove() {
+    setMoving((m) => ({ ...m, busy: true, error: '' }))
+    try {
+      const { data } = await client.post(`/songs/${id}/to-studio`)
+      navigate(`/studio/${data.project_id}`, { replace: true })
+    } catch (err) {
+      const detail = err?.response?.data?.detail
+      setMoving((m) => ({ ...m, busy: false, error: typeof detail === 'string' ? detail : 'Spostamento non riuscito, riprova' }))
+    }
+  }
+
+  const canMove = song && (song.proposed_by_id === user?.id || isAdmin())
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -96,6 +143,11 @@ export default function SongDetail() {
           <h1 className="text-base font-semibold text-white truncate">{song.title}</h1>
           <p className="text-xs text-gray-400 truncate">{song.artist}</p>
         </div>
+        {canMove && (
+          <button onClick={openMove} className="p-2 text-gray-400 hover:text-gray-200" title="Sposta in Prove" aria-label="Sposta in Prove">
+            <Layers className="w-5 h-5" />
+          </button>
+        )}
         <button
           onClick={() => navigate(`/songs/${id}/edit`)}
           className="p-2 text-gray-400 hover:text-gray-200"
@@ -260,6 +312,16 @@ export default function SongDetail() {
           song={song}
           onChanged={(updated) => { setSong(updated); setPickingCover(false) }}
           onClose={() => setPickingCover(false)}
+        />
+      )}
+
+      {moving && (
+        <ConfirmDialog
+          title="Sposta in Prove"
+          message={moving.error ? `${moving.message} — ${moving.error}` : moving.message}
+          confirmLabel={moving.busy ? 'Un attimo…' : 'Sposta'}
+          onConfirm={() => !moving.busy && doMove()}
+          onCancel={() => !moving.busy && setMoving(null)}
         />
       )}
 

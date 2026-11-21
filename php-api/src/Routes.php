@@ -78,6 +78,18 @@ final class Routes
             ['PUT', '#^/studio/takes/(?<tid>\d+)/comments/(?<cid>\d+)$#', 'Studio::updateComment', 'user'],
             ['DELETE', '#^/studio/takes/(?<tid>\d+)/comments/(?<cid>\d+)$#', 'Studio::deleteComment', 'user'],
 
+            ['PUT', '#^/studio/projects/(?<pid>\d+)/lyrics$#', 'Studio::updateLyrics', 'user'],
+            ['POST', '#^/studio/projects/(?<pid>\d+)/lyrics/ocr$#', 'Studio::ocrLyrics', 'user'],
+            ['GET', '#^/studio/projects/(?<pid>\d+)/comments$#', 'Studio::listProjectComments', 'user'],
+            ['POST', '#^/studio/projects/(?<pid>\d+)/comments$#', 'Studio::createProjectComment', 'user'],
+            ['PUT', '#^/studio/projects/(?<pid>\d+)/comments/(?<cid>\d+)$#', 'Studio::updateProjectComment', 'user'],
+            ['DELETE', '#^/studio/projects/(?<pid>\d+)/comments/(?<cid>\d+)$#', 'Studio::deleteProjectComment', 'user'],
+            ['GET', '#^/studio/projects/(?<pid>\d+)/videos$#', 'Studio::listProjectVideos', 'user'],
+            ['POST', '#^/studio/projects/(?<pid>\d+)/videos$#', 'Studio::createProjectVideo', 'user'],
+            ['PUT', '#^/studio/projects/(?<pid>\d+)/videos/(?<vid>\d+)$#', 'Studio::updateProjectVideo', 'user'],
+            ['DELETE', '#^/studio/projects/(?<pid>\d+)/videos/(?<vid>\d+)$#', 'Studio::deleteProjectVideo', 'user'],
+            ['POST', '#^/songs/(?<id>\d+)/to-studio$#', 'Studio::moveSong', 'user'],
+
             ['GET', '#^/admin/users$#', 'adminListUsers', 'admin'],
             ['PUT', '#^/admin/users/(?<uid>\d+)/password$#', 'adminResetPassword', 'admin'],
             ['POST', '#^/admin/users/(?<uid>\d+)/reset-link$#', 'adminResetLink', 'admin'],
@@ -208,7 +220,7 @@ final class Routes
      * Copertina di ripiego per i brani senza cover (es. inseriti con force): miniatura del video
      * di prova piu' recente, o thumbnail ricavata dal link YouTube.
      */
-    private static function videoThumb(array $v): ?string
+    public static function videoThumb(array $v): ?string
     {
         if ($v['thumb_url'] !== null && $v['thumb_url'] !== '') {
             return $v['thumb_url'];
@@ -689,12 +701,12 @@ final class Routes
 
     // ── Testo (manuale e OCR) ────────────────────────────────────────────────
 
-    private const LYRICS_MAX = 30000;
+    public const LYRICS_MAX = 30000;
     private const OCR_MAX_BYTES = 4194304;
     private const OCR_TYPES = [IMAGETYPE_JPEG => 'image/jpeg', IMAGETYPE_PNG => 'image/png', IMAGETYPE_WEBP => 'image/webp'];
 
     /** Fine riga uniformi, niente spazi in coda alle righe ne' righe vuote ai bordi. */
-    private static function cleanLyrics(string $text): string
+    public static function cleanLyrics(string $text): string
     {
         $text = str_replace(["\r\n", "\r"], "\n", $text);
         $text = (string)preg_replace('/[ \t]+$/m', '', $text);
@@ -724,8 +736,14 @@ final class Routes
     /** Legge testo e accordi da una foto con un modello di visione Groq. Non salva nulla: decide l'editor. */
     private static function ocrLyrics(array $p, array $user): void
     {
-        set_time_limit(90);
         self::song($p['id']);
+        Http::send(self::ocrUpload());
+    }
+
+    /** Valida l'immagine caricata (campo `image`), la fa leggere al modello e ritorna { text, has_chords }. */
+    public static function ocrUpload(): array
+    {
+        set_time_limit(90);
         $tooBig = 'Immagine troppo grande (max ' . (int)(self::OCR_MAX_BYTES / 1048576) . ' MB)';
         if ($_FILES === [] && $_POST === [] && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
             Http::fail(413, $tooBig);
@@ -769,10 +787,10 @@ final class Routes
         if ($text === '' || stripos($text, 'NESSUN_TESTO') !== false) {
             Http::fail(422, "Nessun testo riconosciuto nell'immagine");
         }
-        Http::send([
+        return [
             'text' => mb_substr($text, 0, self::LYRICS_MAX),
             'has_chords' => preg_match('/\[[A-G][#b]?[^\[\]\s]{0,8}\]/', $text) === 1,
-        ]);
+        ];
     }
 
     // ── Commenti ─────────────────────────────────────────────────────────────
@@ -946,10 +964,10 @@ final class Routes
         Http::send(array_map([self::class, 'videoOut'], $rows));
     }
 
-    private static function createVideo(array $p, array $user): void
+    /** Corpo di un nuovo link video, validato: [url, title, recorded_on, note, thumb_url]. */
+    public static function videoCreateFields(): array
     {
         $b = Http::body(['url' => 'string', 'title' => 'string', 'recorded_on' => 'string', 'note' => '?string', 'thumb_url' => '?string']);
-        self::song($p['id']);
         $url = Media::checkUrl($b['url']);
         $title = Media::checkTitle($b['title']);
         $date = Media::checkDate($b['recorded_on']);
@@ -959,6 +977,24 @@ final class Routes
         if ($thumb !== null && (!str_starts_with(strtolower($thumb), 'https://') || mb_strlen($thumb) > Media::URL_MAX)) {
             $thumb = null;
         }
+        return [$url, $title, $date, $note, $thumb];
+    }
+
+    /** Corpo di modifica di un link video: [title, recorded_on, note] (i campi assenti restano quelli di $v). */
+    public static function videoEditFields(array $v): array
+    {
+        $b = Http::body(['title' => '?string', 'recorded_on' => '?string', 'note' => '?string']);
+        return [
+            $b['title'] !== null ? Media::checkTitle($b['title']) : $v['title'],
+            $b['recorded_on'] !== null ? Media::checkDate($b['recorded_on']) : $v['recorded_on'],
+            $b['note'] !== null ? Media::checkNote($b['note']) : $v['note'],
+        ];
+    }
+
+    private static function createVideo(array $p, array $user): void
+    {
+        self::song($p['id']);
+        [$url, $title, $date, $note, $thumb] = self::videoCreateFields();
         $now = Db::now();
         $id = Db::insert(
             'INSERT INTO song_video (song_id, user_id, url, title, recorded_on, note, thumb_url, created_at, updated_at)
@@ -970,12 +1006,9 @@ final class Routes
 
     private static function updateVideo(array $p, array $user): void
     {
-        $b = Http::body(['title' => '?string', 'recorded_on' => '?string', 'note' => '?string']);
         $v = self::video($p);
         self::requireOwner($v, $user);
-        $title = $b['title'] !== null ? Media::checkTitle($b['title']) : $v['title'];
-        $date = $b['recorded_on'] !== null ? Media::checkDate($b['recorded_on']) : $v['recorded_on'];
-        $note = $b['note'] !== null ? Media::checkNote($b['note']) : $v['note'];
+        [$title, $date, $note] = self::videoEditFields($v);
         Db::exec(
             'UPDATE song_video SET title = ?, recorded_on = ?, note = ?, updated_at = ? WHERE id = ?',
             [$title, $date, $note, Db::now(), $v['id']]

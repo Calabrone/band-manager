@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Circle, Layers, MapPin, MessageSquare, Music, Pencil, Rocket, Scissors, Trash2, Upload, Video } from 'lucide-react'
+import { ArrowLeft, Circle, FileText, Layers, MapPin, Maximize2, MessageSquare, Music, Pencil, Rocket, Scissors, Trash2, Upload, Video } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import BottomNav from '../components/BottomNav'
+import CommentSection from '../components/CommentSection'
 import ConfirmDialog from '../components/ConfirmDialog'
+import LyricsView from '../components/LyricsView'
+import { VideoSection } from '../components/SongMedia'
+import Teleprompter from '../components/Teleprompter'
 import TakeUpload from '../components/studio/TakeUpload'
 import PromoteDialog from '../components/studio/PromoteDialog'
 import {
@@ -60,6 +64,7 @@ export default function StudioProject() {
   const [uploading, setUploading] = useState(false)
   const [promoting, setPromoting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -191,6 +196,50 @@ export default function StudioProject() {
         ))
       )}
 
+      {/* Testo */}
+      <div className="px-4 mt-6">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h2 className="text-sm font-semibold text-gray-300">Testo</h2>
+          {project.lyrics && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => navigate(`/studio/${pid}/lyrics`)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-800 border border-gray-700 text-gray-200 text-xs font-medium">
+                <FileText className="w-4 h-4" />
+                Modifica testo
+              </button>
+              <button onClick={() => setFullscreen(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold">
+                <Maximize2 className="w-4 h-4" />
+                Schermo intero
+              </button>
+            </div>
+          )}
+        </div>
+        {project.lyrics ? (
+          <LyricsView text={project.lyrics} fontSize={15} className="text-gray-300 font-sans" />
+        ) : (
+          <>
+            <p className="text-sm text-gray-500 italic mb-3">Nessun testo ancora.</p>
+            <button onClick={() => navigate(`/studio/${pid}/lyrics`)}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800 border border-gray-700 text-gray-200 text-sm font-medium">
+              <FileText className="w-4 h-4" />
+              Aggiungi testo
+            </button>
+            <p className="text-xs text-gray-500 mt-2">Puoi scriverlo, incollarlo o leggerlo da una foto, con gli accordi.</p>
+          </>
+        )}
+      </div>
+
+      <div className="mt-6">
+        <VideoSection basePath={`/studio/projects/${pid}`} />
+      </div>
+      <div className="mt-8 border-t border-gray-800 pt-4 pb-4">
+        <CommentSection basePath={`/studio/projects/${pid}`} />
+      </div>
+
+      {fullscreen && project.lyrics && (
+        <Teleprompter song={{ id: pid, title: project.title, lyrics: project.lyrics }} storageId={`p${pid}`} onClose={() => setFullscreen(false)} />
+      )}
       {uploading && (
         <TakeUpload
           projectId={pid}

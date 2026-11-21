@@ -28,8 +28,8 @@ function store(key, value) {
 const clamp = (n, { min, max }) => Math.min(max, Math.max(min, n))
 
 /** Testo a tutto schermo con scorrimento automatico. Tocco = avvia/pausa. */
-export default function Teleprompter({ song, onClose }) {
-  const speedKey = `band_tp_speed_${song.id}`
+export default function Teleprompter({ song, onClose, storageId = song.id }) {
+  const speedKey = `band_tp_speed_${storageId}`
   const [fontSize, setFontSize] = useState(() => readNumber('band_tp_font', FONT))
   const [speed, setSpeed] = useState(() => readNumber(speedKey, SPEED))
   const [showChords, setShowChords] = useState(() => {
@@ -249,7 +249,7 @@ export default function Teleprompter({ song, onClose }) {
         <div style={{ height: '40vh' }} className="flex items-end justify-center pb-6">
           <div className="text-center px-5">
             <p className="text-gray-400 text-lg font-semibold">{song.title}</p>
-            <p className="text-gray-600 text-sm">{song.artist}</p>
+            {song.artist && <p className="text-gray-600 text-sm">{song.artist}</p>}
           </div>
         </div>
         <LyricsView

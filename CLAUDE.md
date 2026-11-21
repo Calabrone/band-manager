@@ -65,7 +65,7 @@ docker compose -f deploy/local/docker-compose.yml down           # stop (il DB r
 pip install pytest httpx
 cd tests/api && API_BASE_URL=https://www.motorn.it/band-test/api ADMIN_PASSWORD=... pytest -q    # ADMIN_USER se diverso da admin
 # Frontend: formato accordi (nessuna dipendenza, Node >= 20)
-node --test tests/frontend/chordpro.test.mjs tests/frontend/studio.test.mjs tests/frontend/engines.test.mjs
+node --test tests/frontend/chordpro.test.mjs tests/frontend/studio.test.mjs tests/frontend/engines.test.mjs tests/frontend/metronome.test.mjs
 # End-to-end della Sala prove (Chrome headless, microfono/fotocamera finti; Node >= 22) su un sito locale o di prova, mai sulla produzione
 ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/studio.e2e.mjs
 # Frontend: controlla base path in index.html, manifest, service worker
@@ -186,6 +186,13 @@ GET  /api/studio/takes/{tid}/file?e=&s=[&dl=1] → stream con Range; firma con s
 GET/POST /api/studio/takes/{tid}/markers, PUT/DELETE …/markers/{mid}   → { time_ms, label ≤80 }, modifica solo l'autore
 GET/POST /api/studio/takes/{tid}/comments, PUT/DELETE …/comments/{cid} → { content ≤2000 }, commenti semplici, citazioni nel testo [[m:id]] / [[t:ms]]
 GET  /api/studio/usage                  → { bytes, count } spazio occupato dalle prove
+PUT  /api/studio/projects/{pid}/lyrics  → { lyrics } testo del brano di prova (tutti gli utenti; max 30000; "" lo svuota) → progetto completo
+POST /api/studio/projects/{pid}/lyrics/ocr → multipart image → { text, has_chords }; non salva
+GET/POST /api/studio/projects/{pid}/comments → commenti del brano di prova { content, parent_id? } (come le cover: un livello di risposte)
+PUT/DELETE /api/studio/projects/{pid}/comments/{cid} → PUT solo l'autore, DELETE autore o admin
+GET/POST /api/studio/projects/{pid}/videos → link video del brano di prova (come le cover)
+PUT/DELETE /api/studio/projects/{pid}/videos/{vid} → solo chi l'ha inserito
+POST /api/songs/{id}/to-studio          → { project_id } sposta una cover nelle Prove (solo chi l'ha proposta o admin)
 
 GET  /api/admin/users
 PUT  /api/admin/users/{id}/password     → admin resets any user's password
@@ -217,6 +224,8 @@ Sezione **Prove** (voce nella barra in basso), separata dalle cover: brani di pr
 **Sovraincisione:** il contenuto registrato sopra una base salva `base_take_id` e il modello di allineamento `b(t) = t − sync_ms − offset_ms + base_start_ms` (con ripiego nel loop `base_loop_*`), in `frontend/src/lib/sync.js` (unica fonte, testata). `offset_ms` è la latenza e si regola nel player (±2000 ms).
 
 Frontend: pagine `Studio`, `StudioProject`, `StudioProjectEdit`, `StudioTake`, `StudioRecord` (route `/studio…`); `components/studio/` (`LoopPlayer`, `Timeline` su canvas, `usePlayback`, `MarkerList`, `StudioComments`, `TakeUpload`, `PromoteDialog`, `ui.jsx`); `lib/` pure e testate con `node --test`: `loop.js` (loop, zoom), `refs.js` (citazioni nei commenti), `peaks.js`, `sync.js`, `countin.js`, `recorder.js`, `probe.js`; `lib/engines.js` ha i due motori (Web Audio per l'audio ≤ 60 MB con loop senza stacchi, elemento media per video e file grandi). Registrazione con `MediaRecorder`: mp4 dove supportato, webm di ripiego; si ferma da sola al 95% del limite di upload. Il service worker lascia fuori gli stream `…/file` (regex in `vite.config.js`: il Range di Safari non passa bene dal SW).
+
+**Metronomo, BPM, testo, spostamento** (schema v7, `PRAGMA user_version=7`; spec `.kiro/specs/studio-extras/`): `studio_project.lyrics` (stesso formato ChordPro delle cover, nessuna ricerca online), tabelle `studio_project_comment` (con `parent_id`) e `studio_project_video` (stesse colonne di `comment`/`song_video`, separate perché lì `song_id` è `NOT NULL`). Il testo del progetto si copia nel brano alla promozione. `Routes::cleanLyrics`, `ocrUpload`, `videoCreateFields`, `videoEditFields`, `videoThumb` sono pubblici e condivisi con `Studio.php`. **`Studio::moveSong`** (`POST /songs/{id}/to-studio`, solo `proposed_by_id` o admin) in una transazione `BEGIN IMMEDIATE`: crea il progetto in stato `idea` (creatore = chi aveva proposto il brano) oppure, se il brano era stato promosso, riporta in `idea` il progetto originale (`song_id=NULL`; il testo del brano sostituisce quello del progetto se non è vuoto); copia commenti (con mappa dei `parent_id`, autore e date), link video e testo; gli audio diventano `studio_take` audio con `rename` del file da `data/audio/` a `data/studio/` (descrizione «Registrato il gg/mm/aaaa» + nota; forma d'onda calcolata dal client alla prima apertura); elimina il brano con like e copertina. Se qualcosa fallisce i file tornano indietro e la transazione si annulla. Frontend: `lib/metronome.js` (`clampBpm`, `beatTimesInWindow`, `tapTempo`, `createMetronome` con scheduler a lookahead di 25 ms; `scheduleClick` sta in `countin.js`), `components/studio/BpmControl.jsx` (−/+ con ripetizione, campo, slider 40–300, Tap; usato in `StudioRecord` e `StudioProjectEdit`). In `StudioRecord` il pannello **Tempo** vale anche senza base: conteggio, metronomo continuo in fase con il conteggio, battiti per battuta (2–7), volume; preferenze in `localStorage` `studio_countin`; il click esce solo dalle cuffie (non entra nel file); nella registrazione semplice il taglio iniziale proposto è la fine del conteggio; un cambio di BPM si salva nel progetto (creatore/admin, debounce 800 ms). `LyricsEdit`, `Teleprompter` (`storageId`), `CommentSection` e `VideoSection` (`basePath`) servono sia le cover sia i progetti (route `/studio/:pid/lyrics`). Azione «Sposta in Prove» in `SongDetail`. Test: `tests/api/test_studio_extras.py`, `tests/frontend/metronome.test.mjs`.
 
 Spec: `.kiro/specs/rehearsal-studio/`. Test: `tests/api/test_studio.py`, `node --test tests/frontend/studio.test.mjs tests/frontend/engines.test.mjs`, end-to-end in browser reale `tests/e2e/studio.e2e.mjs` (upload, loop, marker, commenti, registrazione audio/video, sovraincisione). Nota: in `deploy/local` (Docker) il volume del DB nasconde `data/.htaccess`, quindi due test di `test_api.py::TestSecurity` falliscono solo lì (su Aruba lo copia il deploy).
 
@@ -257,6 +266,7 @@ Frontend polls `GET /api/songs/{id}` every 2 s until `validated = True`.
 | `/studio` | `Studio.jsx` | all |
 | `/studio/new`, `/studio/:pid/edit` | `StudioProjectEdit.jsx` | all (modifica: creatore o admin) |
 | `/studio/:pid` | `StudioProject.jsx` | all |
+| `/studio/:pid/lyrics` | `LyricsEdit.jsx` | all (testo del brano di prova) |
 | `/studio/:pid/takes/:tid` | `StudioTake.jsx` | all |
 | `/studio/:pid/record` (`?over=<tid>`) | `StudioRecord.jsx` | all |
 | `/admin` | `Admin.jsx` | admin only |

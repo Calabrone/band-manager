@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import client from '../api/client'
 import BottomNav from '../components/BottomNav'
+import BpmControl from '../components/studio/BpmControl'
 import { Field, btnPrimary, errorText, inputCls } from '../components/studio/ui'
 
 export default function StudioProjectEdit() {
@@ -11,7 +12,7 @@ export default function StudioProjectEdit() {
   const editing = !!pid
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [bpm, setBpm] = useState('')
+  const [bpm, setBpm] = useState(null)
   const [musicKey, setMusicKey] = useState('')
   const [loading, setLoading] = useState(editing)
   const [saving, setSaving] = useState(false)
@@ -22,7 +23,7 @@ export default function StudioProjectEdit() {
     client.get(`/studio/projects/${pid}`).then(({ data }) => {
       setTitle(data.title)
       setDescription(data.description ?? '')
-      setBpm(data.bpm ? String(data.bpm) : '')
+      setBpm(data.bpm || null)
       setMusicKey(data.music_key ?? '')
     }).catch((err) => setError(errorText(err, 'Brano non trovato'))).finally(() => setLoading(false))
   }, [editing, pid])
@@ -34,7 +35,7 @@ export default function StudioProjectEdit() {
     const body = {
       title,
       description: description.trim() || null,
-      bpm: bpm.trim() ? Number(bpm) : null,
+      bpm,
       music_key: musicKey.trim() || null,
     }
     try {
@@ -67,16 +68,15 @@ export default function StudioProjectEdit() {
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} rows={5}
                       className={inputCls} />
           </Field>
-          <div className="flex gap-3">
-            <Field label="BPM (facoltativo)" hint="Usato dal conteggio del player.">
-              <input type="number" inputMode="numeric" min={40} max={300} value={bpm} onChange={(e) => setBpm(e.target.value)}
-                     className={inputCls} placeholder="100" />
-            </Field>
-            <Field label="Tonalità (facoltativa)">
-              <input value={musicKey} onChange={(e) => setMusicKey(e.target.value)} maxLength={20} className={inputCls}
-                     placeholder="Em" />
-            </Field>
+          <div>
+            <span className="block text-xs text-gray-400 mb-1">BPM (facoltativo)</span>
+            <BpmControl value={bpm} onChange={setBpm} optional />
+            <span className="block text-[11px] text-gray-500 mt-1">Usato dal conteggio e dal metronomo quando registri.</span>
           </div>
+          <Field label="Tonalità (facoltativa)">
+            <input value={musicKey} onChange={(e) => setMusicKey(e.target.value)} maxLength={20} className={inputCls}
+                   placeholder="Em" />
+          </Field>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <button type="submit" disabled={saving || !title.trim()} className={`${btnPrimary} w-full py-3`}>
             {saving ? 'Salvataggio…' : editing ? 'Salva' : 'Crea brano di prova'}

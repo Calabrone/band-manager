@@ -94,14 +94,14 @@ final class Db
 
     private static function init(PDO $pdo): void
     {
-        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 6) {
+        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 7) {
             return;
         }
         $pdo->exec('BEGIN IMMEDIATE');
         try {
             // Un'altra richiesta puo' aver inizializzato mentre aspettavamo il lock.
             $version = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-            if ($version >= 6) {
+            if ($version >= 7) {
                 $pdo->exec('COMMIT');
                 return;
             }
@@ -126,7 +126,8 @@ final class Db
             self::migrateV4($pdo);
             self::migrateV5($pdo);
             self::migrateV6($pdo);
-            $pdo->exec('PRAGMA user_version=6');
+            self::migrateV7($pdo);
+            $pdo->exec('PRAGMA user_version=7');
             $pdo->exec('COMMIT');
         } catch (Throwable $e) {
             $pdo->exec('ROLLBACK');
@@ -262,6 +263,33 @@ final class Db
         }
         // Nome della band: precompila l'artista dei brani promossi dalla Sala prove
         $pdo->exec("INSERT OR IGNORE INTO appsetting (\"key\", value) VALUES ('band_name', '')");
+    }
+
+    /**
+     * Sala prove: testo del brano di prova, commenti e link video a livello di progetto.
+     * Tabelle separate da comment/song_video (song_id NOT NULL), stesse colonne per copiare i dati.
+     */
+    private static function migrateV7(PDO $pdo): void
+    {
+        try {
+            $pdo->exec('ALTER TABLE studio_project ADD COLUMN lyrics TEXT');
+        } catch (Throwable $e) {
+            // colonna gia' presente
+        }
+        foreach ([
+            'CREATE TABLE IF NOT EXISTS studio_project_comment (
+                id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                content VARCHAR NOT NULL, parent_id INTEGER,
+                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)',
+            'CREATE INDEX IF NOT EXISTS ix_studio_project_comment_project ON studio_project_comment (project_id)',
+            'CREATE TABLE IF NOT EXISTS studio_project_video (
+                id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                url VARCHAR NOT NULL, title VARCHAR NOT NULL, recorded_on VARCHAR NOT NULL,
+                note VARCHAR, thumb_url VARCHAR, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)',
+            'CREATE INDEX IF NOT EXISTS ix_studio_project_video_project ON studio_project_video (project_id)',
+        ] as $ddl) {
+            $pdo->exec($ddl);
+        }
     }
 
     private static function schema(): array

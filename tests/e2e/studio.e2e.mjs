@@ -151,7 +151,8 @@ try {
   for (const d of ['Page', 'Runtime', 'DOM', 'Log']) await cdp.send(`${d}.enable`)
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 430, height: 1000, deviceScaleFactor: 1, mobile: false })
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
-    source: `localStorage.setItem('band_token', ${q(token)}); localStorage.setItem('band_user', ${q(JSON.stringify(login.data.user))});`,
+    source: `localStorage.setItem('band_token', ${q(token)}); localStorage.setItem('band_user', ${q(JSON.stringify(login.data.user))});
+      window.__osc = 0; const co = BaseAudioContext.prototype.createOscillator; BaseAudioContext.prototype.createOscillator = function () { window.__osc++; return co.call(this) };`,
   })
 
   // S1 elenco
@@ -376,6 +377,117 @@ try {
   await go(`/studio/${pid}`)
   await waitFor(`document.body.innerText.includes('Contenuti (4)')`, 10000, 'quattro contenuti')
   check('progetto: quattro contenuti, sovraincisione etichettata', (await hasText('sopra a «riff»')) || (await hasText('sopra a')))
+
+  // S8 controllo BPM: tasti +/−, slider, valore salvato
+  const press = async (selector) => {
+    const r = await evaluate(`(() => { const b = document.querySelector(${q(selector)}); const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: r.x, y: r.y, button: 'left', clickCount: 1 })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x, y: r.y, button: 'left', clickCount: 1 })
+    await sleep(120)
+  }
+  const bpmField = () => evaluate(`document.querySelector('input[aria-label="BPM"]')?.value`)
+  await go(`/studio/${pid}/edit`)
+  await waitFor(`!!document.querySelector('input[aria-label="BPM"]')`, 10000, 'controllo BPM')
+  check('BPM: parte da quello del brano', (await bpmField()) === '100', await bpmField())
+  await press('button[aria-label="Aumenta BPM"]')
+  await press('button[aria-label="Aumenta BPM"]')
+  await press('button[aria-label="Diminuisci BPM"]')
+  check('BPM: i tasti + e − cambiano di uno', (await bpmField()) === '101', await bpmField())
+  await evaluate(`(() => { const el = document.querySelector('input[type=range]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '140'); el.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await sleep(150)
+  check('BPM: lo slider imposta il valore', (await bpmField()) === '140', await bpmField())
+  await evaluate(`document.querySelector('input[aria-label="BPM"]').focus()`)
+  await typeInto('input[aria-label="BPM"]', '999')
+  await evaluate(`document.querySelector('input[aria-label="BPM"]').blur()`)
+  await sleep(150)
+  check('BPM: il campo riporta ai limiti (300)', (await bpmField()) === '300', await bpmField())
+  await evaluate(`document.querySelector('input[aria-label="BPM"]').focus()`)
+  await typeInto('input[aria-label="BPM"]', '101')
+  await evaluate(`document.querySelector('input[aria-label="BPM"]').blur()`)
+  await sleep(150)
+  await clickText('Salva')
+  await waitFor(`location.pathname.endsWith(${q('/studio/' + pid)})`, 10000, 'ritorno al brano dopo il salvataggio')
+  check('BPM: salvato nel brano di prova', (await api('GET', `/studio/projects/${pid}`, null, token)).data.bpm === 101)
+
+  // S9 registrazione con conteggio e metronomo
+  await go(`/studio/${pid}/record`)
+  await waitFor(`document.body.innerText.includes('Attiva il microfono')`)
+  await clickText('Attiva il microfono')
+  await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Registra') && !b.disabled && b.className.includes('red'))`, 10000, 'microfono attivo')
+  check('tempo: pannello visibile anche senza base, BPM del brano', (await hasText('Tempo')) && (await bpmField()) === '101', await bpmField())
+  check('tempo: nessun avviso cuffie finché conteggio e metronomo sono spenti', !(await hasText('senza cuffie il microfono registra anche il click')))
+  const tick = (label) => evaluate(`(() => { const l = [...document.querySelectorAll('label')].find(e => e.textContent.includes(${q(label)})); const i = l?.querySelector('input'); if (!i) return false; if (!i.checked) i.click(); return i.checked })()`)
+  await tick('Conteggio prima di partire')
+  await tick('Metronomo durante la registrazione')
+  await sleep(200)
+  check('tempo: avviso cuffie con conteggio/metronomo attivi', await hasText('senza cuffie il microfono registra anche il click'))
+  await press('button[aria-label="Aumenta BPM"]')
+  await sleep(1300)
+  const savedBpm = (await api('GET', `/studio/projects/${pid}`, null, token)).data.bpm
+  check('tempo: il BPM cambiato in registrazione si salva nel brano (creatore/admin)', savedBpm === 102, `bpm ${savedBpm}`)
+  await evaluate(`window.__osc = 0`)
+  await clickText('Registra')
+  await waitFor(`document.body.innerText.includes('Registrazione in corso')`, 8000)
+  check('metronomo: indicatore con i BPM in registrazione', await hasText('Metronomo · 102 BPM'))
+  await sleep(5200)
+  const osc = await evaluate(`window.__osc`)
+  check('metronomo: click di conteggio (4) e di metronomo programmati', osc >= 8, `${osc} click`)
+  await clickText('Ferma')
+  await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Salva')`, 20000, 'revisione con metronomo')
+  const oscAfterStop = await evaluate(`window.__osc`)
+  await sleep(800)
+  check('metronomo: si ferma con la registrazione', (await evaluate(`window.__osc`)) - oscAfterStop <= 1, `+${(await evaluate(`window.__osc`)) - oscAfterStop}`)
+  await clickText('Salva')
+  await waitFor(`location.pathname.includes('/takes/')`, 25000)
+  const metroTake = (await api('GET', `/studio/takes/${await lastTakeId()}`, null, token)).data
+  const expectedMs = (0.25 + (4 * 60) / 102) * 1000
+  check('conteggio: il taglio iniziale parte dalla fine del conteggio', metroTake.trim_start_ms !== null && Math.abs(metroTake.trim_start_ms - expectedMs) < 500 && metroTake.trim_end_ms > metroTake.trim_start_ms,
+    `taglio ${metroTake.trim_start_ms}–${metroTake.trim_end_ms}, atteso ~${Math.round(expectedMs)}`)
+
+  // S10 testo nel brano di prova
+  await go(`/studio/${pid}`)
+  await waitFor(`document.body.innerText.includes('Aggiungi testo')`, 10000, 'sezione testo')
+  check('testo: sezioni Testo, Video prove e Commenti nel brano di prova', (await hasText('Video prove')) && (await hasText('Commenti')))
+  await clickText('Aggiungi testo')
+  await waitFor(`!!document.querySelector('textarea')`, 10000, 'editor del testo')
+  await typeInto('textarea', '[Intro]\n[Am]Parole del pezzo [G]inedito')
+  await clickText('Salva')
+  await waitFor(`location.pathname.endsWith(${q('/studio/' + pid)})`, 10000, 'ritorno al brano dopo il testo')
+  await waitFor(`document.body.innerText.includes('inedito')`, 8000, 'testo in pagina')
+  const lyr = (await api('GET', `/studio/projects/${pid}`, null, token)).data.lyrics
+  check('testo: salvato e mostrato con gli accordi', lyr.includes('[Am]Parole del pezzo') && (await hasText('Modifica testo')) && (await hasText('Schermo intero')))
+  await clickText('Schermo intero')
+  await waitFor(`document.body.innerText.includes('inedito') && !!document.querySelector('.fixed.inset-0')`, 6000, 'teleprompter')
+  check('testo: lo schermo intero si apre', true)
+
+  // S11 spostamento di una cover in Prove
+  const song = await api('POST', '/songs', { artist: 'Artista E2E', title: `Cover E2E ${Date.now()}`, category: 'da_provare', force: true }, token)
+  const sid = song.data.id
+  await api('PUT', `/songs/${sid}/lyrics`, { lyrics: '[C]Testo della cover' }, token)
+  await api('POST', `/songs/${sid}/comments`, { content: 'Commento da portare' }, token)
+  const fd = new FormData()
+  fd.append('title', 'Audio da portare'); fd.append('recorded_on', '2026-03-07')
+  fd.append('file', new Blob([fs.readFileSync(wav)]), 'cover.wav')
+  const aud = await fetch(`${API}/songs/${sid}/audios`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+  check('spostamento: audio di prova caricato sulla cover', aud.status === 201, String(aud.status))
+  let movedPid = null
+  try {
+    await go(`/songs/${sid}`)
+    await waitFor(`[...document.querySelectorAll('button')].some(b => b.title === 'Sposta in Prove')`, 10000, 'azione Sposta in Prove')
+    await clickTitle('Sposta in Prove')
+    await waitFor(`document.body.innerText.includes('Si perdono i like')`, 8000, 'riepilogo')
+    check('spostamento: il riepilogo elenca ciò che viaggia', (await hasText('il testo, 1 commento, 1 audio')) , await evaluate(`document.body.innerText.slice(0, 400)`))
+    await clickText('Sposta')
+    await waitFor(`location.pathname.includes('/studio/') && !location.pathname.includes('/songs/')`, 15000, 'apertura del brano di prova')
+    movedPid = Number(await evaluate(`location.pathname.split('/').pop()`))
+    await waitFor(`document.body.innerText.includes('Commento da portare')`, 10000, 'commento portato')
+    const movedProj = (await api('GET', `/studio/projects/${movedPid}`, null, token)).data
+    check('spostamento: il brano di prova ha testo, commento e audio della cover', movedProj.lyrics === '[C]Testo della cover' && movedProj.takes.length === 1 && (await hasText('Audio da portare')), JSON.stringify({ lyrics: movedProj.lyrics, takes: movedProj.takes.length }))
+    check('spostamento: la cover non esiste più', (await api('GET', `/songs/${sid}`, null, token)).status === 404)
+  } finally {
+    if (movedPid) await api('DELETE', `/studio/projects/${movedPid}`, null, token)
+    await api('DELETE', `/songs/${sid}`, null, token)
+  }
 } catch (err) {
   check('ESECUZIONE', false, err.message)
 } finally {

@@ -101,7 +101,7 @@ function ItemMeta({ item }) {
 
 // ── Video ──────────────────────────────────────────────────────────────────
 
-function VideoForm({ songId, video, onSaved, onClose }) {
+function VideoForm({ basePath, video, onSaved, onClose }) {
   const editing = !!video
   const [url, setUrl] = useState(video?.url ?? '')
   const [title, setTitle] = useState(video?.title ?? '')
@@ -136,8 +136,8 @@ function VideoForm({ songId, video, onSaved, onClose }) {
     try {
       const body = { title, recorded_on: date, note }
       const { data } = editing
-        ? await client.put(`/songs/${songId}/videos/${video.id}`, body)
-        : await client.post(`/songs/${songId}/videos`, { ...body, url, thumb_url: thumb })
+        ? await client.put(`${basePath}/videos/${video.id}`, body)
+        : await client.post(`${basePath}/videos`, { ...body, url, thumb_url: thumb })
       onSaved(data)
     } catch (err) {
       setError(errorText(err, 'Salvataggio non riuscito'))
@@ -234,7 +234,8 @@ function VideoItem({ video, mine, onEdit, onDelete }) {
   )
 }
 
-function VideoSection({ songId }) {
+// basePath: dove stanno i link video (default: quelli del brano `songId`; per un brano di prova `/studio/projects/<pid>`)
+export function VideoSection({ songId, basePath = `/songs/${songId}` }) {
   const { user } = useAuth()
   const [videos, setVideos] = useState([])
   const [form, setForm] = useState(null)   // null | 'new' | video
@@ -242,11 +243,11 @@ function VideoSection({ songId }) {
 
   useEffect(() => {
     let cancelled = false
-    client.get(`/songs/${songId}/videos`).then(({ data }) => {
+    client.get(`${basePath}/videos`).then(({ data }) => {
       if (!cancelled) setVideos(data)
     }).catch(() => {})
     return () => { cancelled = true }
-  }, [songId])
+  }, [basePath])
 
   function saved(v) {
     setVideos(prev => {
@@ -259,7 +260,7 @@ function VideoSection({ songId }) {
   async function confirmDelete() {
     const id = deleteTarget.id
     try {
-      await client.delete(`/songs/${songId}/videos/${id}`)
+      await client.delete(`${basePath}/videos/${id}`)
       setVideos(prev => prev.filter(v => v.id !== id))
     } catch {
       // ignore
@@ -288,7 +289,7 @@ function VideoSection({ songId }) {
       )}
       {form && (
         <VideoForm
-          songId={songId}
+          basePath={basePath}
           video={form === 'new' ? null : form}
           onSaved={saved}
           onClose={() => setForm(null)}

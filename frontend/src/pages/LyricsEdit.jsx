@@ -46,7 +46,11 @@ async function shrinkImage(file) {
 }
 
 export default function LyricsEdit() {
-  const { id } = useParams()
+  // Stesso editor per le cover (/songs/:id/lyrics) e per i brani di prova (/studio/:pid/lyrics)
+  const { id, pid } = useParams()
+  const inStudio = !!pid
+  const apiBase = inStudio ? `/studio/projects/${pid}` : `/songs/${id}`
+  const backPath = inStudio ? `/studio/${pid}` : `/songs/${id}`
   const navigate = useNavigate()
   const fileRef = useRef(null)
 
@@ -66,7 +70,7 @@ export default function LyricsEdit() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([client.get(`/songs/${id}`), client.get('/config')])
+    Promise.all([client.get(apiBase), client.get('/config')])
       .then(([songRes, configRes]) => {
         if (cancelled) return
         setSong(songRes.data)
@@ -80,7 +84,7 @@ export default function LyricsEdit() {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [id])
+  }, [apiBase])
 
   const dirty = text !== original
   const used = useMemo(() => usedChords(text), [text])
@@ -106,8 +110,8 @@ export default function LyricsEdit() {
     setError('')
     setSaving(true)
     try {
-      await client.put(`/songs/${id}/lyrics`, { lyrics: text })
-      navigate(`/songs/${id}`, { replace: true })
+      await client.put(`${apiBase}/lyrics`, { lyrics: text })
+      navigate(backPath, { replace: true })
     } catch (err) {
       setError(err.response?.data?.detail || 'Errore durante il salvataggio')
       setSaving(false)
@@ -125,7 +129,7 @@ export default function LyricsEdit() {
       const blob = await shrinkImage(file)
       const form = new FormData()
       form.append('image', blob, 'scan.jpg')
-      const { data } = await client.post(`/songs/${id}/lyrics/ocr`, form, { timeout: 120000 })
+      const { data } = await client.post(`${apiBase}/lyrics/ocr`, form, { timeout: 120000 })
       // Rete di sicurezza: accordi all'italiana o rimasti sulla riga sopra
       const result = normalizeText(fromChordSheet(data.text))
       if (text.trim() === '') applyScan(result, 'replace')
@@ -187,7 +191,7 @@ export default function LyricsEdit() {
           </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-base font-semibold text-white truncate">Testo e accordi</h1>
-            <p className="text-xs text-gray-400 truncate">{song.title} — {song.artist}</p>
+            <p className="text-xs text-gray-400 truncate">{song.artist ? `${song.title} — ${song.artist}` : song.title}</p>
           </div>
         </div>
         <div className="flex">

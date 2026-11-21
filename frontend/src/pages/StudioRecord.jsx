@@ -5,12 +5,14 @@ import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import BottomNav from '../components/BottomNav'
 import ConfirmDialog from '../components/ConfirmDialog'
+import BpmControl from '../components/studio/BpmControl'
 import Timeline from '../components/studio/Timeline'
 import LoopPlayer from '../components/studio/LoopPlayer'
 import { SizeTips } from '../components/studio/TakeUpload'
 import { Field, btnPrimary, btnSecondary, errorText, formatSize, inputCls } from '../components/studio/ui'
 import { DEFAULT_BPM, scheduleCountIn } from '../lib/countin'
 import { createBufferEngine, getAudioContext, loadBuffer } from '../lib/engines'
+import { createMetronome } from '../lib/metronome'
 import { clampLoop, fullView, formatTime } from '../lib/loop'
 import { peaksFromBlob } from '../lib/probe'
 import {
@@ -22,11 +24,13 @@ import { clampOffset, computeSync, estimateLatencyMs } from '../lib/sync'
 const COUNT_KEY = 'studio_countin'
 const LATENCY_KEY = 'studio_latency_ms'
 
+const COUNT_DEFAULTS = { enabled: false, beatsPerBar: 4, bars: 1, everyLap: false, metronome: false, volume: 0.5 }
+
 function readCountIn() {
   try {
-    return { enabled: false, beatsPerBar: 4, bars: 1, everyLap: false, ...JSON.parse(localStorage.getItem(COUNT_KEY) || '{}') }
+    return { ...COUNT_DEFAULTS, ...JSON.parse(localStorage.getItem(COUNT_KEY) || '{}') }
   } catch {
-    return { enabled: false, beatsPerBar: 4, bars: 1, everyLap: false }
+    return { ...COUNT_DEFAULTS }
   }
 }
 
@@ -57,7 +61,7 @@ export default function StudioRecord() {
   const [params] = useSearchParams()
   const overId = params.get('over')
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
 
   const [project, setProject] = useState(null)
   const [base, setBase] = useState(null)
@@ -100,7 +104,22 @@ export default function StudioRecord() {
   const previewRef = useRef(null)
   const abortRef = useRef(null)
   const initialOffset = useRef(0)
+  const metroRef = useRef(null)
+  const countInMsRef = useRef(0)
+  const bpmSaveRef = useRef(null)
   const resultUrl = useRef(null)
+
+  const canManage = !!project && (project.created_by_id === user.id || isAdmin())
+
+  // Il BPM scelto si salva nel brano di prova (solo creatore o admin), con una breve attesa tra un ritocco e l'altro
+  function changeBpm(next) {
+    setBpm(next)
+    if (!canManage) return
+    clearTimeout(bpmSaveRef.current)
+    bpmSaveRef.current = setTimeout(() => {
+      client.put(`/studio/projects/${pid}`, { bpm: next }).catch(() => setWarn('Non sono riuscito a salvare i BPM nel brano di prova.'))
+    }, 800)
+  }
 
   const go = useCallback((p) => {
     phaseRef.current = p
@@ -173,6 +192,8 @@ export default function StudioRecord() {
     return () => {
       window.removeEventListener('beforeunload', warnLeave)
       clearInterval(timerRef.current)
+      clearTimeout(bpmSaveRef.current)
+      metroRef.current?.stop()
       stopStream(streamRef.current)
       baseEngineRef.current?.destroy()
       abortRef.current?.abort()
@@ -248,9 +269,18 @@ export default function StudioRecord() {
       startedAt.current = performance.now()
       initialOffset.current = engine ? initialLatency(ctx, streamRef.current) : 0
       syncRef.current = null
+      // Conteggio (facoltativo) e metronomo (facoltativo) partono insieme alla base, in fase tra loro
+      const t0 = ctx.currentTime + 0.25
+      const tBase = countIn.enabled
+        ? scheduleCountIn(ctx, t0, { bpm, beatsPerBar: countIn.beatsPerBar, bars: countIn.bars, volume: countIn.volume })
+        : t0
+      countInMsRef.current = countIn.enabled ? Math.round((tBase - tRec) * 1000) : 0
+      if (countIn.metronome) {
+        const metro = createMetronome(ctx, { bpm, beatsPerBar: countIn.beatsPerBar, volume: countIn.volume })
+        metro.start(tBase)
+        metroRef.current = metro
+      }
       if (engine) {
-        const t0 = ctx.currentTime + 0.25
-        const tBase = countIn.enabled ? scheduleCountIn(ctx, t0, { bpm, beatsPerBar: countIn.beatsPerBar, bars: countIn.bars }) : t0
         engine.play(tBase - ctx.currentTime)
         syncRef.current = {
           sync_ms: computeSync(tRec, tBase),
@@ -263,6 +293,8 @@ export default function StudioRecord() {
       timerRef.current = setInterval(() => setElapsed(Math.round(performance.now() - startedAt.current)), 200)
       navigator.wakeLock?.request('screen').then((w) => { wakeRef.current = w }).catch(() => {})
     } catch (err) {
+      metroRef.current?.stop()
+      metroRef.current = null
       baseEngineRef.current?.destroy()
       baseEngineRef.current = null
       setError(err?.message || 'Impossibile avviare la registrazione')
@@ -273,6 +305,8 @@ export default function StudioRecord() {
     if (phaseRef.current !== 'recording') return
     go('processing')
     clearInterval(timerRef.current)
+    metroRef.current?.stop()
+    metroRef.current = null
     baseEngineRef.current?.destroy()
     baseEngineRef.current = null
     wakeRef.current?.release?.().catch(() => {})
@@ -291,7 +325,9 @@ export default function StudioRecord() {
       })
       setTitle(base ? `Sopra a «${base.title}»` : `Registrazione ${new Date().toLocaleString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`)
       setDescription('')
-      setTrim(null)
+      // Senza base, il conteggio iniziale non fa parte del pezzo: si propone il taglio alla sua fine
+      const dur = analysis?.durationMs ?? measured
+      setTrim(!base && countInMsRef.current > 0 && dur - countInMsRef.current >= 200 ? { a: countInMsRef.current, b: dur } : null)
       setOffset(initialOffset.current)
       setInfo(message || '')
       go('review')
@@ -468,19 +504,6 @@ export default function StudioRecord() {
                       La base suonerà in cuffia in ripetizione da <span className="font-mono text-gray-200">{formatTime(loop.a)}</span> a{' '}
                       <span className="font-mono text-gray-200">{formatTime(loop.b)}</span> (trascina A e B per cambiare).
                     </p>
-                    <div className="flex items-center gap-3 text-xs text-gray-300">
-                      <label className="flex items-center gap-2">
-                        <input type="checkbox" checked={countIn.enabled} onChange={(e) => updateCountIn({ enabled: e.target.checked })} />
-                        Conteggio prima di partire
-                      </label>
-                      {countIn.enabled && (
-                        <label className="flex items-center gap-1">
-                          BPM
-                          <input type="number" min={40} max={300} value={bpm} onChange={(e) => setBpm(Math.max(40, Math.min(300, Number(e.target.value) || DEFAULT_BPM)))}
-                                 className="w-16 px-2 py-1 rounded-lg bg-gray-800 border border-gray-700 text-white" />
-                        </label>
-                      )}
-                    </div>
                   </>
                 )}
                 <p className="flex gap-2 text-xs text-amber-300 bg-amber-900/20 rounded-lg p-2">
@@ -489,6 +512,55 @@ export default function StudioRecord() {
                 </p>
               </div>
             )}
+
+            <div className="p-3 rounded-xl bg-gray-900 border border-gray-800 space-y-3">
+              <p className="text-sm text-white">Tempo</p>
+              <BpmControl value={bpm} onChange={changeBpm} />
+              {project && !canManage && (
+                <p className="text-[11px] text-gray-500">Il BPM vale solo per questa registrazione: solo chi ha creato il brano può cambiarlo nel brano.</p>
+              )}
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-gray-300">
+                <label className="flex items-center gap-2 col-span-2">
+                  <input type="checkbox" checked={countIn.enabled} onChange={(e) => updateCountIn({ enabled: e.target.checked })} />
+                  Conteggio prima di partire
+                </label>
+                <label className="flex items-center gap-2 col-span-2">
+                  <input type="checkbox" checked={countIn.metronome} onChange={(e) => updateCountIn({ metronome: e.target.checked })} />
+                  Metronomo durante la registrazione
+                </label>
+                {(countIn.enabled || countIn.metronome) && (
+                  <>
+                    <label className="flex items-center gap-2">
+                      Battiti
+                      <select value={countIn.beatsPerBar} onChange={(e) => updateCountIn({ beatsPerBar: Number(e.target.value) })}
+                              className="px-2 py-1 rounded-lg bg-gray-800 border border-gray-700 text-white">
+                        {[2, 3, 4, 5, 6, 7].map((n) => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                    </label>
+                    {countIn.enabled && (
+                      <label className="flex items-center gap-2">
+                        Battute
+                        <select value={countIn.bars} onChange={(e) => updateCountIn({ bars: Number(e.target.value) })}
+                                className="px-2 py-1 rounded-lg bg-gray-800 border border-gray-700 text-white">
+                          {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </label>
+                    )}
+                    <label className="flex items-center gap-2 col-span-2">
+                      Volume
+                      <input type="range" min={0.1} max={1} step={0.05} value={countIn.volume} aria-label="Volume del click"
+                             onChange={(e) => updateCountIn({ volume: Number(e.target.value) })} className="flex-1 accent-brand-500" />
+                    </label>
+                  </>
+                )}
+              </div>
+              {!overId && (countIn.enabled || countIn.metronome) && (
+                <p className="flex gap-2 text-xs text-amber-300 bg-amber-900/20 rounded-lg p-2">
+                  <Headphones className="w-4 h-4 flex-shrink-0" />
+                  Usa le cuffie: senza cuffie il microfono registra anche il click.
+                </p>
+              )}
+            </div>
 
             <div className="space-y-2">
               <SizeTips maxBytes={maxBytes} />
@@ -514,6 +586,7 @@ export default function StudioRecord() {
               <p className="flex items-center justify-center gap-2 text-red-400 text-sm"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" /> Registrazione in corso</p>
               <p className="text-4xl font-mono text-white">{formatTime(elapsed)}</p>
               <p className="text-xs text-gray-500">{formatSize(bytes)}{maxBytes ? ` di ${formatSize(maxBytes)}` : ''}</p>
+              {countIn.metronome && <p className="text-xs text-gray-500">Metronomo · {bpm} BPM</p>}
             </div>
             <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
               <div className="h-full transition-[width] duration-75" style={{ width: `${levelPercent(level.rms) * 100}%`, background: level.peak > 0.98 ? '#ef4444' : '#22c55e' }} />

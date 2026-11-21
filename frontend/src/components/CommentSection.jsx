@@ -91,7 +91,8 @@ function CommentItem({
   )
 }
 
-export default function CommentSection({ songId }) {
+// basePath: dove stanno i commenti (default: quelli del brano `songId`; per un brano di prova `/studio/projects/<pid>`)
+export default function CommentSection({ songId, basePath = `/songs/${songId}` }) {
   const { user, isAdmin } = useAuth()
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(true)
@@ -105,13 +106,13 @@ export default function CommentSection({ songId }) {
 
   useEffect(() => {
     let cancelled = false
-    client.get(`/songs/${songId}/comments`).then(({ data }) => {
+    client.get(`${basePath}/comments`).then(({ data }) => {
       if (!cancelled) setComments(data)
     }).catch(() => {}).finally(() => {
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [songId])
+  }, [basePath])
 
   const threads = useMemo(() => {
     const top = comments.filter(c => c.parent_id === null)
@@ -124,7 +125,7 @@ export default function CommentSection({ songId }) {
     if (!content || submitting) return
     setSubmitting(true)
     try {
-      const { data } = await client.post(`/songs/${songId}/comments`, { content })
+      const { data } = await client.post(`${basePath}/comments`, { content })
       setComments(prev => [...prev, data])
       setNewText('')
     } catch {
@@ -139,7 +140,7 @@ export default function CommentSection({ songId }) {
     if (!content || submitting) return
     setSubmitting(true)
     try {
-      const { data } = await client.post(`/songs/${songId}/comments`, { content, parent_id: parentId })
+      const { data } = await client.post(`${basePath}/comments`, { content, parent_id: parentId })
       setComments(prev => [...prev, data])
       setReplyingTo(null)
       setReplyText('')
@@ -154,7 +155,7 @@ export default function CommentSection({ songId }) {
     const content = editText.trim()
     if (!content) return
     try {
-      const { data } = await client.put(`/songs/${songId}/comments/${commentId}`, { content })
+      const { data } = await client.put(`${basePath}/comments/${commentId}`, { content })
       setComments(prev => prev.map(c => c.id === commentId ? data : c))
       setEditingId(null)
       setEditText('')
@@ -167,7 +168,7 @@ export default function CommentSection({ songId }) {
     if (!deleteTarget) return
     const id = deleteTarget.id
     try {
-      await client.delete(`/songs/${songId}/comments/${id}`)
+      await client.delete(`${basePath}/comments/${id}`)
       setComments(prev => prev.filter(c => c.id !== id && c.parent_id !== id))
     } catch {
       // ignore

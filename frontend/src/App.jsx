@@ -43,6 +43,7 @@ function AppRoutes() {
       <Route path="/studio" element={<ProtectedRoute><Studio /></ProtectedRoute>} />
       <Route path="/studio/new" element={<ProtectedRoute><StudioProjectEdit /></ProtectedRoute>} />
       <Route path="/studio/:pid" element={<ProtectedRoute><StudioProject /></ProtectedRoute>} />
+      <Route path="/studio/:pid/lyrics" element={<ProtectedRoute><LyricsEdit /></ProtectedRoute>} />
       <Route path="/studio/:pid/edit" element={<ProtectedRoute><StudioProjectEdit /></ProtectedRoute>} />
       <Route path="/studio/:pid/record" element={<ProtectedRoute><StudioRecord /></ProtectedRoute>} />
       <Route path="/studio/:pid/takes/:tid" element={<ProtectedRoute><StudioTake /></ProtectedRoute>} />
