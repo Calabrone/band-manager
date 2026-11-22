@@ -1,6 +1,6 @@
 {
   "name": "band-manager-frontend",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,6 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/atkinson-hyperlegible": "^5.3.0",
+    "@fontsource/barlow-condensed": "^5.3.0",
+    "@fontsource/literata": "^5.3.0",
     "axios": "^1.7.0",
     "lucide-react": "^0.400.0",
     "qrcode": "^1.5.4",

@@ -153,7 +153,7 @@ export default function ChordPicker({ current, used = [], word, onPick, onClose 
           <button
             onClick={() => chord && onPick(chord)}
             disabled={!chord}
-            className="flex-1 h-12 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold disabled:opacity-40"
+            className="flex-1 h-12 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent text-sm font-semibold disabled:opacity-40"
           >
             Conferma
           </button>

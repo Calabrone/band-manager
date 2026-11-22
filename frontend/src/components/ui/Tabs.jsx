@@ -26,7 +26,7 @@ export default function Tabs({ items, value, onChange, stickyClass = 'top-0', ar
             {label}
             {count !== undefined && count !== null && count > 0 && (
               <span
-                className={`ml-1 text-xs px-1.5 py-0.5 rounded-full ${active ? 'bg-brand-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+                className={`ml-1 text-xs px-1.5 py-0.5 rounded-full ${active ? 'bg-brand-600 text-on-accent' : 'bg-gray-700 text-gray-300'}`}
               >
                 {count}
               </span>

@@ -236,7 +236,7 @@ export default function Teleprompter({ song, onClose, storageId = song.id }) {
   const btn = 'flex items-center justify-center w-11 h-11 rounded-xl bg-gray-800 active:bg-gray-700 text-gray-100'
 
   return (
-    <div ref={rootRef} className="fixed inset-0 z-50 bg-black text-gray-100 select-none">
+    <div ref={rootRef} className="fixed inset-0 z-50 bg-gray-950 text-gray-100 select-none">
       <div
         ref={scrollRef}
         onClick={toggle}
@@ -318,7 +318,7 @@ export default function Teleprompter({ song, onClose, storageId = song.id }) {
               </button>
             )}
             <button
-              className="flex items-center justify-center gap-2 h-11 px-5 rounded-xl bg-brand-600 active:bg-brand-700 text-white font-semibold text-sm"
+              className="flex items-center justify-center gap-2 h-11 px-5 rounded-xl bg-brand-600 active:bg-brand-700 text-on-accent font-semibold text-sm"
               onClick={() => { toggle(); touchUi() }}
             >
               {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}

@@ -5,7 +5,7 @@ import { formatClock } from '../../lib/loop'
 export const inputCls = `w-full px-3 py-2 rounded-xl bg-gray-800 border border-gray-700 text-white
                   placeholder-gray-500 text-sm focus:outline-none focus:border-brand-500`
 
-export const btnPrimary = `px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium
+export const btnPrimary = `px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent text-sm font-medium
                   disabled:opacity-50 transition flex items-center justify-center gap-1.5`
 export const btnSecondary = `px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium
                   disabled:opacity-50 transition flex items-center justify-center gap-1.5`
@@ -92,5 +92,6 @@ export const CATEGORY_OPTIONS = [
 
 /** Colore stabile per autore (marker sulla timeline): tinta dall'id utente. */
 export function userColor(userId) {
-  return `hsl(${(Number(userId) * 67) % 360} 70% 62%)`
+  // Luminosità dal tema (--user-l): più chiara sui temi scuri, più scura sui chiari
+  return `hsl(${(Number(userId) * 67) % 360} 70% var(--user-l, 62%))`
 }

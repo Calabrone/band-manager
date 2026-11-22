@@ -53,6 +53,7 @@ final class Http
             $ok = match ($t) {
                 'string' => is_string($v),
                 'bool' => is_bool($v),
+                'array' => is_array($v),
                 default => is_int($v),
             };
             if (!$ok) {

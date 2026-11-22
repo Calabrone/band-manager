@@ -2,6 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { followCursor, formatClock, formatTime, moveHandle, msToX, panView, xToMs, zoomAt } from '../../lib/loop'
 import { peaksForView } from '../../lib/peaks'
 import { userColor } from './ui'
+import { cssColor, themeRgb, THEME_EVENT } from '../../lib/themeRuntime'
+
+/** Colori del canvas letti dal tema attivo. */
+function readColors() {
+  return {
+    bg: themeRgb('--gray-900'),
+    wave: themeRgb('--gray-500'),
+    line: themeRgb('--gray-700'),
+    active: themeRgb('--brand-400'),
+    loop: themeRgb('--brand-500'),
+    cursor: themeRgb('--ink'),
+  }
+}
 
 const RULER_H = 20
 const LONG_PRESS_MS = 500
@@ -26,7 +39,7 @@ function Handle({ x, width, label, onPointerDown, onPointerMove, onPointerUp }) 
       className="absolute bottom-0 flex justify-center cursor-ew-resize touch-none"
     >
       <div className="w-0.5 h-full bg-purple-400" />
-      <div style={{ transform: `translateX(${shift}px)` }} className="absolute bottom-1 w-6 h-8 rounded-md bg-purple-500 text-white text-xs font-bold flex items-center justify-center shadow">
+      <div style={{ transform: `translateX(${shift}px)` }} className="absolute bottom-1 w-6 h-8 rounded-md bg-purple-500 text-on-accent text-xs font-bold flex items-center justify-center shadow">
         {label}
       </div>
     </div>
@@ -49,6 +62,15 @@ export default function Timeline({
   const live = useRef({})
   live.current = { duration, peaks, view, loop, trim, markers, width, height, onViewChange, onLoopChange, onSeek, onAddMarkerAt, getPosition }
   const lastPan = useRef(0)
+  const colors = useRef(null)
+  const [themeTick, setThemeTick] = useState(0)
+
+  // Cambio di tema: rilegge i colori e ridisegna
+  useEffect(() => {
+    const onTheme = () => { colors.current = null; setThemeTick((n) => n + 1) }
+    window.addEventListener(THEME_EVENT, onTheme)
+    return () => window.removeEventListener(THEME_EVENT, onTheme)
+  }, [])
 
   useEffect(() => {
     const el = wrapRef.current
@@ -71,7 +93,8 @@ export default function Timeline({
     }
     const g = c.getContext('2d')
     g.setTransform(dpr, 0, 0, dpr, 0, 0)
-    g.fillStyle = '#111827'
+    const col = colors.current || (colors.current = readColors())
+    g.fillStyle = cssColor(col.bg)
     g.fillRect(0, 0, w, h)
     if (!(dur > 0) || !(v.spanMs > 0)) return
     const x = (ms) => msToX(ms, v, w)
@@ -81,7 +104,7 @@ export default function Timeline({
 
     // Regione del loop
     if (lp && lp.b > lp.a) {
-      g.fillStyle = lp.active ? 'rgba(168,85,247,0.22)' : 'rgba(168,85,247,0.08)'
+      g.fillStyle = cssColor(col.loop, lp.active ? 0.22 : 0.08)
       g.fillRect(x(lp.a), top, x(lp.b) - x(lp.a), bodyH)
     }
 
@@ -91,12 +114,12 @@ export default function Timeline({
       for (let i = 0; i < cols.length; i++) {
         const ms = xToMs(i + 0.5, v, w)
         const inside = lp && lp.active && ms >= lp.a && ms <= lp.b
-        g.fillStyle = inside ? '#c084fc' : '#6b7280'
+        g.fillStyle = inside ? cssColor(col.active) : cssColor(col.wave)
         const amp = Math.max(1, (cols[i] / 255) * (bodyH / 2 - 3))
         g.fillRect(i, mid - amp, 1, amp * 2)
       }
     } else {
-      g.fillStyle = '#374151'
+      g.fillStyle = cssColor(col.line)
       g.fillRect(0, mid - 0.5, w, 1)
     }
 
@@ -113,8 +136,8 @@ export default function Timeline({
     const step = tickStep(v, w)
     g.font = '10px system-ui, sans-serif'
     g.textBaseline = 'top'
-    g.fillStyle = '#6b7280'
-    g.strokeStyle = '#374151'
+    g.fillStyle = cssColor(col.wave)
+    g.strokeStyle = cssColor(col.line)
     g.lineWidth = 1
     for (let t = Math.ceil(v.startMs / step) * step; t <= v.startMs + v.spanMs; t += step) {
       const px = Math.round(x(t)) + 0.5
@@ -128,7 +151,7 @@ export default function Timeline({
     // Cursore
     const p = pos()
     if (p >= v.startMs && p <= v.startMs + v.spanMs) {
-      g.fillStyle = '#ffffff'
+      g.fillStyle = cssColor(col.cursor)
       g.fillRect(Math.round(x(p)) - 1, 0, 2, h)
     }
   }, [])
@@ -136,7 +159,7 @@ export default function Timeline({
   // Ridisegna quando cambia qualcosa
   useEffect(() => {
     draw()
-  }, [draw, duration, peaks, view, loop, trim, markers, width, height, playing, redrawKey])
+  }, [draw, duration, peaks, view, loop, trim, markers, width, height, playing, redrawKey, themeTick])
 
   // Durante la riproduzione: disegno a ogni frame, e la vista segue il cursore
   useEffect(() => {

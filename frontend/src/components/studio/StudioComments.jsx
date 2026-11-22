@@ -160,7 +160,7 @@ export default function StudioComments({ takeId, comments, markers, userId, getP
             <Clock className="w-3 h-3" /> Cita istante
           </button>
           <button type="submit" disabled={sending || !text.trim()}
-                  className="ml-auto px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium flex items-center gap-1 disabled:opacity-50">
+                  className="ml-auto px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-on-accent text-xs font-medium flex items-center gap-1 disabled:opacity-50">
             <Send className="w-3 h-3" /> Invia
           </button>
         </div>

@@ -291,7 +291,7 @@ export default function SongDetail() {
               <button
                 data-tour="fullscreen-btn"
                 onClick={() => { setFullscreen(true); trackStep('prompter') }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent text-xs font-semibold"
               >
                 <Maximize2 className="w-4 h-4" />
                 Schermo intero

@@ -41,7 +41,7 @@ function CommentItem({
             <button
               onClick={onSaveEdit}
               disabled={!editText.trim()}
-              className="p-2 rounded-xl bg-brand-600 text-white disabled:opacity-40 hover:bg-brand-700"
+              className="p-2 rounded-xl bg-brand-600 text-on-accent disabled:opacity-40 hover:bg-brand-700"
             >
               <Check className="w-4 h-4" />
             </button>
@@ -221,7 +221,7 @@ export default function CommentSection({ songId, basePath = `/songs/${songId}`, 
         <button
           type="submit"
           disabled={!newText.trim() || submitting}
-          className="self-end p-2 rounded-xl bg-brand-600 text-white disabled:opacity-40 hover:bg-brand-700"
+          className="self-end p-2 rounded-xl bg-brand-600 text-on-accent disabled:opacity-40 hover:bg-brand-700"
         >
           <Send className="w-4 h-4" />
         </button>
@@ -290,7 +290,7 @@ export default function CommentSection({ songId, basePath = `/songs/${songId}`, 
                       <button
                         type="submit"
                         disabled={!replyText.trim() || submitting}
-                        className="p-2 rounded-xl bg-brand-600 text-white disabled:opacity-40 hover:bg-brand-700"
+                        className="p-2 rounded-xl bg-brand-600 text-on-accent disabled:opacity-40 hover:bg-brand-700"
                       >
                         <Send className="w-4 h-4" />
                       </button>

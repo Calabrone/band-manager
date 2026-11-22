@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ConfigProvider } from './context/ConfigContext'
 import { OnboardingProvider } from './context/OnboardingContext'
+import { ThemeProvider } from './context/ThemeContext'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import ForgotPassword from './pages/ForgotPassword'
@@ -17,6 +18,7 @@ import StudioTake from './pages/StudioTake'
 import StudioRecord from './pages/StudioRecord'
 import Admin from './pages/Admin'
 import Profile from './pages/Profile'
+import Appearance from './pages/Appearance'
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, isAdmin } = useAuth()
@@ -51,6 +53,7 @@ function AppRoutes() {
       <Route path="/studio/:pid/takes/:tid" element={<ProtectedRoute><StudioTake /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+      <Route path="/profile/appearance" element={<ProtectedRoute><Appearance /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
@@ -59,11 +62,13 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <ConfigProvider>
-        <OnboardingProvider>
-          <AppRoutes />
-        </OnboardingProvider>
-      </ConfigProvider>
+      <ThemeProvider>
+        <ConfigProvider>
+          <OnboardingProvider>
+            <AppRoutes />
+          </OnboardingProvider>
+        </ConfigProvider>
+      </ThemeProvider>
     </AuthProvider>
   )
 }

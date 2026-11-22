@@ -15,6 +15,7 @@ final class Routes
             ['GET', '#^/auth/me$#', 'me', 'user'],
             ['PUT', '#^/auth/password$#', 'changePassword', 'user'],
             ['PUT', '#^/auth/profile$#', 'updateProfile', 'user'],
+            ['PUT', '#^/auth/theme$#', 'updateTheme', 'user'],
             ['GET', '#^/auth/invite/(?<token>[0-9a-f]{64})$#', 'checkInvite', 'none'],
             ['POST', '#^/auth/register$#', 'register', 'none'],
             ['POST', '#^/auth/forgot$#', 'forgotPassword', 'none'],
@@ -151,6 +152,7 @@ final class Routes
             'role' => $u['role'],
             'email' => $u['email'],
             'must_change_password' => (bool)(int)$u['must_change_password'],
+            'theme' => isset($u['theme']) ? json_decode((string)$u['theme'], true) : null,
         ];
     }
 
@@ -393,6 +395,16 @@ final class Routes
         $username = $b['username'] !== null ? self::checkUsername($b['username'], $id) : $user['username'];
         $email = $b['email'] !== null ? self::checkEmail($b['email'], $id, true) : $user['email'];
         Db::exec('UPDATE "user" SET username = ?, email = ? WHERE id = ?', [$username, $email, $id]);
+        Http::send(self::userOut(Db::one('SELECT * FROM "user" WHERE id = ?', [$id])));
+    }
+
+    /** Tema dell'aspetto dell'utente: { theme: {...} } lo salva, { theme: null } lo cancella. */
+    private static function updateTheme(array $p, array $user): void
+    {
+        $b = Http::body(['theme' => '?array']);
+        $id = (int)$user['id'];
+        $json = $b['theme'] === null ? null : json_encode(Theme::validate($b['theme']), JSON_UNESCAPED_SLASHES);
+        Db::exec('UPDATE "user" SET theme = ? WHERE id = ?', [$json, $id]);
         Http::send(self::userOut(Db::one('SELECT * FROM "user" WHERE id = ?', [$id])));
     }
 

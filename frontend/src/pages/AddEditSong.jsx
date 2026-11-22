@@ -264,7 +264,7 @@ export default function AddEditSong() {
                     type="button"
                     onClick={handleUseSuggestion}
                     disabled={submitting}
-                    className="mt-2 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
+                    className="mt-2 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-on-accent text-xs font-medium disabled:opacity-50"
                   >
                     Usa suggerimento
                   </button>
@@ -302,7 +302,7 @@ export default function AddEditSong() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-base transition disabled:opacity-50"
+            className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent font-semibold text-base transition disabled:opacity-50"
           >
             {isEdit ? 'Salva modifiche' : 'Aggiungi brano'}
           </button>

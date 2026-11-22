@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut } from 'lucide-react'
+import { ChevronRight, LogOut, Palette } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import AppHeader from '../components/ui/AppHeader'
 import HelpButton from '../components/onboarding/HelpButton'
 import { VERSION } from '../version'
+import { useTheme } from '../context/ThemeContext'
+import { PRESETS } from '../lib/themePresets'
 
 const INPUT =
   'w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 text-base'
@@ -67,7 +69,7 @@ function AccountForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm disabled:opacity-50"
+          className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent font-medium text-sm disabled:opacity-50"
         >
           {loading ? 'Salvataggio...' : 'Salva dati'}
         </button>
@@ -86,6 +88,9 @@ export default function Profile() {
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
   const forced = Boolean(user?.must_change_password)
+  const { theme } = useTheme()
+  const themeName = theme.preset === 'auto' ? 'Automatico' : PRESETS[theme.preset]?.label
+  const customized = Boolean(theme.accent || theme.tint || theme.contrast !== 'normal' || theme.font !== 'system' || theme.scale !== 100 || theme.radius !== 'soft')
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -134,6 +139,21 @@ export default function Profile() {
           <p className="text-gray-500 text-sm capitalize">{user?.role}</p>
         </div>
 
+        {!forced && (
+          <button
+            onClick={() => navigate('/profile/appearance')}
+            data-testid="open-appearance"
+            className="flex items-center gap-3 w-full rounded-xl bg-gray-900 border border-gray-800 px-4 py-3 text-left hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+          >
+            <Palette className="w-5 h-5 text-brand-400 flex-shrink-0" />
+            <span className="flex-1 min-w-0">
+              <span className="block text-white font-medium">Aspetto</span>
+              <span className="block text-gray-500 text-sm truncate">{themeName}{customized ? ', personalizzato' : ''}</span>
+            </span>
+            <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
+          </button>
+        )}
+
         {!forced && <AccountForm />}
 
         {/* Change password */}
@@ -172,7 +192,7 @@ export default function Profile() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm disabled:opacity-50"
+              className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent font-medium text-sm disabled:opacity-50"
             >
               {loading ? 'Salvataggio...' : 'Aggiorna password'}
             </button>

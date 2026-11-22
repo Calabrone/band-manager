@@ -64,7 +64,7 @@ function ResetPasswordModal({ user, onClose }) {
           <button
             type="submit"
             disabled={loading || success}
-            className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm disabled:opacity-50"
+            className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent font-medium text-sm disabled:opacity-50"
           >
             {loading ? 'Salvataggio...' : 'Imposta password'}
           </button>
@@ -128,7 +128,7 @@ function LinkBox({ url, expiresAt, hint }) {
       <div className="flex gap-2">
         <button
           onClick={copy}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-on-accent text-xs font-medium"
         >
           <Copy className="w-3.5 h-3.5" />
           {copied ? 'Copiato ✓' : 'Copia link'}
@@ -143,7 +143,7 @@ function LinkBox({ url, expiresAt, hint }) {
           </button>
         )}
       </div>
-      {qr && <img src={qr} alt="QR code del link" className="w-40 h-40 rounded-lg bg-white p-1" />}
+      {qr && <img src={qr} alt="QR code del link" className="w-40 h-40 rounded-lg bg-on-scrim p-1" />}
     </div>
   )
 }
@@ -202,7 +202,7 @@ function InviteSection() {
         <button
           onClick={handleCreate}
           disabled={loading}
-          className="flex items-center gap-2 px-4 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent font-medium text-sm disabled:opacity-50"
         >
           <Plus className="w-4 h-4" />
           {loading ? 'Creazione...' : 'Genera link'}
@@ -366,7 +366,7 @@ function SettingField({ label, hint, settingKey, initialMasked }) {
           onClick={handleSave}
           disabled={saving || !value.trim()}
           className={`px-4 py-3 rounded-xl flex items-center gap-1.5 text-sm font-medium transition disabled:opacity-50 ${
-            saved ? 'bg-green-700 text-white' : 'bg-brand-600 hover:bg-brand-700 text-white'
+            saved ? 'bg-green-700 text-on-solid' : 'bg-brand-600 hover:bg-brand-700 text-on-accent'
           }`}
         >
           <Save className="w-4 h-4" />
@@ -417,7 +417,7 @@ function PlainSettingField({ label, hint, settingKey, initialValue, placeholder 
           onClick={handleSave}
           disabled={saving}
           className={`px-4 py-3 rounded-xl flex items-center gap-1.5 text-sm font-medium transition disabled:opacity-50 ${
-            saved ? 'bg-green-700 text-white' : 'bg-brand-600 hover:bg-brand-700 text-white'
+            saved ? 'bg-green-700 text-on-solid' : 'bg-brand-600 hover:bg-brand-700 text-on-accent'
           }`}
         >
           <Save className="w-4 h-4" />
@@ -473,7 +473,7 @@ function SettingsTab() {
             }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+              className={`inline-block h-4 w-4 transform rounded-full bg-on-solid shadow transition-transform ${
                 chordsEnabled ? 'translate-x-6' : 'translate-x-1'
               }`}
             />

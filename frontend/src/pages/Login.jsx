@@ -31,7 +31,7 @@ export default function Login() {
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 rounded-2xl bg-brand-600 flex items-center justify-center mb-4">
-            <Music2 className="w-8 h-8 text-white" />
+            <Music2 className="w-8 h-8 text-on-accent" />
           </div>
           <h1 className="text-2xl font-bold text-white text-center break-words max-w-full">{readCachedBandName() || 'Band Manager'}</h1>
           <p className="text-gray-400 text-sm mt-1">Accedi per continuare</p>
@@ -70,7 +70,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-base transition disabled:opacity-50"
+            className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent font-semibold text-base transition disabled:opacity-50"
           >
             {loading ? 'Accesso...' : 'Accedi'}
           </button>

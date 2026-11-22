@@ -64,10 +64,12 @@ docker compose -f deploy/local/docker-compose.yml down           # stop (il DB r
 # API (pytest + httpx) contro l'ambiente di prova; non lanciarli sul DB di produzione
 pip install pytest httpx
 cd tests/api && API_BASE_URL=https://www.motorn.it/band-test/api ADMIN_PASSWORD=... pytest -q    # ADMIN_USER se diverso da admin
-# Frontend: formato accordi (nessuna dipendenza, Node >= 20)
-node --test tests/frontend/chordpro.test.mjs tests/frontend/studio.test.mjs tests/frontend/engines.test.mjs tests/frontend/metronome.test.mjs tests/frontend/swipe.test.mjs tests/frontend/studioGroups.test.mjs tests/frontend/onboarding.test.mjs
+# Frontend: test unitari (accordi, Sala prove, swipe, guida, temi; nessuna dipendenza, Node >= 20)
+node --test tests/frontend/*.test.mjs
 # End-to-end della Sala prove (Chrome headless, microfono/fotocamera finti; Node >= 22) su un sito locale o di prova, mai sulla produzione
 ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/studio.e2e.mjs
+# End-to-end dei temi (360×780; E2E_SHOTS=<cartella> salva le schermate di tutte le pagine in tre temi)
+ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/theme.e2e.mjs
 # Frontend: controlla base path in index.html, manifest, service worker
 bash tests/frontend/check_base.sh /band/
 ```
@@ -142,6 +144,7 @@ POST /api/auth/login                    → { token, user }
 GET  /api/auth/me
 PUT  /api/auth/password                 → requires current_password + new_password (min 6); returns { ok, token, user } (token_version++ invalida i JWT precedenti)
 PUT  /api/auth/profile                  → { username?, email? } (username unico case-insensitive 3-30 [A-Za-z0-9._-]; email unica, "" la cancella)
+PUT  /api/auth/theme                    → { theme: {...}|null } tema dell'aspetto dell'utente (Theme::validate, 422 se non valido); risponde userOut (con `theme`)
 GET  /api/auth/invite/{token}           → { valid, role?, expires_at? } (pubblico)
 POST /api/auth/register                 → { token, username, email, password } → crea l'utente col ruolo dell'invito (pubblico, solo con invito valido)
 POST /api/auth/forgot                   → { email } → sempre { ok: true }; manda mail(), link valido 1 h (pubblico, rate limit)
@@ -238,6 +241,10 @@ Schema v4 (`PRAGMA user_version=4`): `song.lyrics_source` (`NULL` = automatico d
 
 Pensata per schermi da 360 px (nessuno scorrimento orizzontale: lo verifica l'e2e). **Componenti** in `components/ui/`: `Tabs` (schede con conteggio e indicatore che segue il dito), `Segmented`, `Collapsible` (stato in `localStorage`, riepilogo a pannello chiuso), `Menu` (⋮: bottom sheet sotto 640 px), `ActionBar` (barra fissa in basso con safe area), `Fab`, `AppHeader`, `SwipeTabs`; `components/studio/StatusStepper`. **Layout:** Prove = 3 segmenti (In corso/Promossi/Archivio) con una sola chiamata `GET /studio/projects?status=<tutti>` e sezioni per stato (`lib/studioGroups.js`); brano di prova a schede Contenuti/Testo/Video/Commenti (scheda ricordata in `sessionStorage`, conteggi da `onCount` di `VideoSection`/`CommentSection`); player a livelli (loop A‑B in una riga + «Marker qui», pannelli «Regola loop» e «Ascolto»); registrazione con `ActionBar` (Registra/Ferma sempre visibili) e pannelli Tempo/Info richiudibili; `StudioTake` e `StudioRecord` senza `BottomNav`; la versione sta in Profilo e nella guida. **Swipe:** `SwipeTabs` + `lib/swipe.js` (logica pura testata: dito a sinistra = sezione successiva, asse bloccato dopo 10 px, soglia 60 px o gesto rapido, zona morta di 20 px ai bordi, nessun giro circolare; ignora input/canvas/`[data-no-swipe]`/aree con scorrimento orizzontale); l'indicatore si muove con la variabile CSS `--swipe-progress` su `<html>` (niente re-render). Usato in Repertorio, Prove e brano di prova. **Nome del gruppo:** `context/ConfigContext.jsx` legge `GET /config` dopo il login (`bandName`, `refreshConfig`; Admin lo richiama dopo aver salvato `band_name`), `AppHeader` lo mostra sopra il titolo e imposta `document.title`; l'ultimo nome noto sta in `localStorage` `band_name_cache` e serve alla pagina di login (il server non lo espone senza accesso). **Guida «Primi passi»:** `lib/onboarding.js` (12 passi in due gruppi Repertorio/Sala prove, stato puro: `markDone`, `progress`, `resolveTarget`, `load`/`serialize`), `context/OnboardingContext.jsx` (stato per utente in `localStorage` `band_onboarding_<id>`, ultimo sid/pid/tid in `band_onboarding_ctx_<id>`, nessun dato sul server), `components/onboarding/` (`WelcomeCard`, `GuidePanel`, `HelpButton` con pallino, `Spotlight` che evidenzia `[data-tour="…"]`). I passi si spuntano da soli con `trackStep(id)` (evento `band:onboarding`) lanciato dopo l'azione riuscita; saltare o completare toglie il pallino, «Ricomincia» azzera. Test: `tests/frontend/{swipe,studioGroups,onboarding}.test.mjs`; l'e2e emula 360×780 con touch (swipe, guida, nome del gruppo, nessuno scorrimento orizzontale).
 
+#### Temi e aspetto (spec `.kiro/specs/themes/`)
+
+Ogni utente sceglie un tema (Profilo → Aspetto) e lo personalizza; vale per tutta l'app. **Meccanismo:** in `tailwind.config.js` le palette `gray`, `brand` (`purple` = alias di `brand`), `red`, `green`, `amber`, `yellow`, `blue`, `sky` sono variabili CSS `rgb(var(--<famiglia>-<gradino>) / <alpha-value>)`; `white` = `--ink` (testo più forte: bianco nei temi scuri, quasi nero nei chiari), `black` = `--scrim` (sempre nero), `on-accent` (testo sui pulsanti `bg-brand-*`), `on-solid`/`on-scrim` (sempre bianco: pieni di stato, sopra immagini/video, QR); `borderRadius` e `fontFamily.sans` sono variabili. Le classi esistenti non cambiano. **Motore:** `lib/theme.js` (puro, unica fonte; OKLCH) genera le variabili dalla config `{ v, preset, accent, tint{hue,amount}, contrast, font, scale, radius }`; i gradini hanno luminosità per **ruolo** (50–200 testo forte, 300–500 testo secondario, 600–700 pulsanti/bordi, 800–950 superfici/sfondo), così nei temi chiari `gray-950` è lo sfondo chiaro e `text-red-400` un rosso scuro. `contrastFailures` + correzione dell'accento (`resolveAccent`: testo bianco, oppure accento scurito, oppure testo scuro per accenti chiari) garantiscono AA. Preset in `lib/themePresets.js`: `sala` (predefinito = palette Tailwind letterale, pixel identici a prima), `palco`, `valvole`, `mezzanotte`, `spartito` e `giorno` (chiari), `auto` (`sala`/`giorno` secondo `prefers-color-scheme`). I valori di partenza in `index.css` (`:root`) devono coincidere con `buildVars(DEFAULT_THEME)` (lo verifica il test). **Runtime:** `lib/themeRuntime.js` (`applyTheme`: `setProperty` su `<html>` — non `cssText`, lì vive anche `--swipe-progress` —, `data-mode`/`data-theme`, `color-scheme`, `meta theme-color`, evento `band:theme`, caratteri `@fontsource` caricati a richiesta e in precache `woff2`); cache del dispositivo `band_theme` (config) e `band_theme_css` (variabili serializzate, con entrambe le varianti per `auto`) letta dallo **script inline in `index.html`** prima del bundle (niente lampi, anche al login). `context/ThemeContext.jsx`: anteprima immediata, salvataggio con debounce 800 ms su `PUT /auth/theme` (`saveState`, `retry`, salvataggio forzato su `visibilitychange`), rilettura di `/auth/me` all'avvio; utente senza tema sul server → `sala` (non il tema rimasto da un altro utente). Il canvas della `Timeline` legge le variabili e ridisegna su `band:theme`; `userColor` usa `--user-l`. Il manifest PWA resta statico. Backend: schema v8 (`user.theme` JSON), `php-api/src/Theme.php`, `userOut` espone `theme`. **Regola per il nuovo codice:** niente esadecimali né `text-white` su pulsanti pieni: palette + `text-on-accent` (accento) / `text-on-solid` (stati). Test: `tests/frontend/theme.test.mjs`, `tests/api/test_theme.py`, `tests/e2e/theme.e2e.mjs`.
+
 #### API key storage
 
 `groq_api_key` and `genius_api_key` are **not** in `.env` — they live in `AppSetting` and are set via the Admin UI. Read at runtime with `get_setting(session, key)`. `.env` holds only `SECRET_KEY`.
@@ -276,6 +283,7 @@ Frontend polls `GET /api/songs/{id}` every 2 s until `validated = True`.
 | `/studio/:pid/record` (`?over=<tid>`) | `StudioRecord.jsx` | all |
 | `/admin` | `Admin.jsx` | admin only |
 | `/profile` | `Profile.jsx` | all |
+| `/profile/appearance` | `Appearance.jsx` (temi) | all |
 
 #### PWA
 

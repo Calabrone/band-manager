@@ -94,14 +94,14 @@ final class Db
 
     private static function init(PDO $pdo): void
     {
-        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 7) {
+        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 8) {
             return;
         }
         $pdo->exec('BEGIN IMMEDIATE');
         try {
             // Un'altra richiesta puo' aver inizializzato mentre aspettavamo il lock.
             $version = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-            if ($version >= 7) {
+            if ($version >= 8) {
                 $pdo->exec('COMMIT');
                 return;
             }
@@ -127,7 +127,8 @@ final class Db
             self::migrateV5($pdo);
             self::migrateV6($pdo);
             self::migrateV7($pdo);
-            $pdo->exec('PRAGMA user_version=7');
+            self::migrateV8($pdo);
+            $pdo->exec('PRAGMA user_version=8');
             $pdo->exec('COMMIT');
         } catch (Throwable $e) {
             $pdo->exec('ROLLBACK');
@@ -289,6 +290,16 @@ final class Db
             'CREATE INDEX IF NOT EXISTS ix_studio_project_video_project ON studio_project_video (project_id)',
         ] as $ddl) {
             $pdo->exec($ddl);
+        }
+    }
+
+    /** v8: tema dell'aspetto scelto dall'utente (JSON validato da Theme::validate). */
+    private static function migrateV8(PDO $pdo): void
+    {
+        try {
+            $pdo->exec('ALTER TABLE "user" ADD COLUMN theme TEXT');
+        } catch (Throwable $e) {
+            // colonna gia' presente
         }
     }
 

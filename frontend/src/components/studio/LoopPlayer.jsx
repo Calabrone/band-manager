@@ -34,7 +34,7 @@ function Btn({ children, active, className = '', ...rest }) {
       type="button"
       {...rest}
       className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition disabled:opacity-40 flex items-center justify-center gap-1
-        ${active ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-200 hover:bg-gray-700'} ${className}`}
+        ${active ? 'bg-purple-600 text-on-accent' : 'bg-gray-800 text-gray-200 hover:bg-gray-700'} ${className}`}
     >
       {children}
     </button>
@@ -385,7 +385,7 @@ const LoopPlayer = forwardRef(function LoopPlayer(
           type="button"
           onClick={togglePlay}
           disabled={!ready}
-          className="w-16 h-16 rounded-full bg-brand-600 hover:bg-brand-700 disabled:opacity-40 flex items-center justify-center text-white"
+          className="w-16 h-16 rounded-full bg-brand-600 hover:bg-brand-700 disabled:opacity-40 flex items-center justify-center text-on-accent"
           title={playing ? 'Pausa' : 'Play'}
         >
           {playing ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 ml-1" />}

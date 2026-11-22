@@ -1,11 +1,31 @@
 <!doctype html>
-<html lang="it">
+<html lang="it" data-mode="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
     <title>Band Manager</title>
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%icon.svg" />
-    <meta name="theme-color" content="#1e293b" />
+    <meta name="theme-color" content="#030712" />
+    <script>
+      // Tema dell'ultimo utente su questo dispositivo, applicato prima del bundle (niente lampi).
+      // Cache scritta da src/lib/themeRuntime.js (band_theme_css).
+      (function () {
+        try {
+          var c = JSON.parse(localStorage.getItem('band_theme_css'))
+          var e = c && (c.auto && !matchMedia('(prefers-color-scheme: dark)').matches ? c.light : c.dark)
+          if (!e) return
+          var r = document.documentElement
+          e.css.split(';').forEach(function (p) {
+            var i = p.indexOf(':')
+            if (i > 0) r.style.setProperty(p.slice(0, i), p.slice(i + 1))
+          })
+          r.style.colorScheme = e.mode
+          r.dataset.mode = e.mode
+          r.dataset.theme = e.preset
+          document.querySelector('meta[name="theme-color"]').content = e.color
+        } catch (x) {}
+      })()
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Band" />

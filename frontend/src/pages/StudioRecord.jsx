@@ -446,7 +446,7 @@ export default function StudioRecord() {
             <div className="grid grid-cols-2 gap-2">
               {[['audio', 'Solo audio', Mic], ['video', 'Video + audio', VideoIcon]].map(([k, label, Icon]) => (
                 <button key={k} type="button" onClick={() => changeKind(k)}
-                        className={`py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 ${kind === k ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-300'}`}>
+                        className={`py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 ${kind === k ? 'bg-purple-600 text-on-accent' : 'bg-gray-800 text-gray-300'}`}>
                   <Icon className="w-4 h-4" /> {label}
                 </button>
               ))}
@@ -461,7 +461,7 @@ export default function StudioRecord() {
                 {kind === 'video' && <video ref={setPreview} autoPlay muted playsInline className="w-full max-h-[40vh] bg-black rounded-xl" />}
                 <div>
                   <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                    <div className="h-full transition-[width] duration-75" style={{ width: `${levelPercent(level.rms) * 100}%`, background: level.peak > 0.98 ? '#ef4444' : '#22c55e' }} />
+                    <div className="h-full transition-[width] duration-75" style={{ width: `${levelPercent(level.rms) * 100}%`, background: level.peak > 0.98 ? 'rgb(var(--red-500))' : 'rgb(var(--green-500))' }} />
                   </div>
                   <p className="text-[11px] text-gray-500 mt-1">
                     {level.peak > 0.98 ? <span className="text-red-400">Saturazione: abbassa il volume o allontanati dal microfono. </span> : 'Suona qualcosa per controllare il livello. '}
@@ -597,7 +597,7 @@ export default function StudioRecord() {
               {countIn.metronome && <p className="text-xs text-gray-500">Metronomo · {bpm} BPM</p>}
             </div>
             <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-              <div className="h-full transition-[width] duration-75" style={{ width: `${levelPercent(level.rms) * 100}%`, background: level.peak > 0.98 ? '#ef4444' : '#22c55e' }} />
+              <div className="h-full transition-[width] duration-75" style={{ width: `${levelPercent(level.rms) * 100}%`, background: level.peak > 0.98 ? 'rgb(var(--red-500))' : 'rgb(var(--green-500))' }} />
             </div>
             {warn && <p className="text-sm text-amber-300 text-center">{warn}</p>}
           </div>
@@ -661,7 +661,7 @@ export default function StudioRecord() {
       {phase === 'setup' && supported && (
         <ActionBar>
           <button type="button" onClick={startRecording} disabled={!canStart}
-                  className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-semibold flex items-center justify-center gap-2">
+                  className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-700 disabled:opacity-40 text-on-solid font-semibold flex items-center justify-center gap-2">
             <Circle className="w-5 h-5 fill-current" /> Registra
           </button>
         </ActionBar>

@@ -66,7 +66,7 @@ export default function GuidePanel({ state, initialGroup, onClose, onShow, onSki
                         <li key={s.id} data-step={s.id} data-done={done ? '1' : '0'} className="flex items-start gap-3 px-2 py-2 rounded-xl">
                           <span
                             className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 border ${
-                              done ? 'bg-green-600 border-green-600 text-white' : 'border-gray-600 text-transparent'
+                              done ? 'bg-green-600 border-green-600 text-on-solid' : 'border-gray-600 text-transparent'
                             }`}
                           >
                             <Check className="w-4 h-4" />

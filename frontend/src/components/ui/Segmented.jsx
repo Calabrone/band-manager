@@ -23,11 +23,11 @@ export default function Segmented({ options, value, onChange, className = '' }) 
             data-segment={key}
             onClick={() => onChange(key)}
             className={`relative flex-1 min-w-0 px-2 py-2 text-sm font-medium truncate transition-colors ${
-              active ? 'text-white' : 'text-gray-400 hover:text-gray-200'
+              active ? 'text-on-accent' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
             {label}
-            {count !== undefined && <span className={`ml-1 text-xs ${active ? 'text-white/80' : 'text-gray-500'}`}>{count}</span>}
+            {count !== undefined && <span className={`ml-1 text-xs ${active ? 'text-on-accent/80' : 'text-gray-500'}`}>{count}</span>}
           </button>
         )
       })}

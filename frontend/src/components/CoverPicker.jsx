@@ -83,7 +83,7 @@ export default function CoverPicker({ song, onChanged, onClose }) {
                       <Video className="absolute w-6 h-6 text-gray-600 -z-0" />
                       {v.id === activeId && (
                         <span className="absolute top-1 right-1 p-0.5 rounded-full bg-brand-600">
-                          <Check className="w-3 h-3 text-white" />
+                          <Check className="w-3 h-3 text-on-accent" />
                         </span>
                       )}
                     </div>

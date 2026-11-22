@@ -185,7 +185,7 @@ function VideoForm({ basePath, video, onSaved, onClose }) {
         <button
           type="submit"
           disabled={saving}
-          className="w-full py-2.5 rounded-xl bg-brand-600 text-white text-sm font-medium disabled:opacity-50 hover:bg-brand-700"
+          className="w-full py-2.5 rounded-xl bg-brand-600 text-on-accent text-sm font-medium disabled:opacity-50 hover:bg-brand-700"
         >
           {saving ? 'Salvataggio...' : 'Salva'}
         </button>
@@ -421,7 +421,7 @@ function AudioForm({ songId, audio, maxBytes, onSaved, onClose }) {
         <button
           type="submit"
           disabled={saving}
-          className="w-full py-2.5 rounded-xl bg-brand-600 text-white text-sm font-medium disabled:opacity-50 hover:bg-brand-700"
+          className="w-full py-2.5 rounded-xl bg-brand-600 text-on-accent text-sm font-medium disabled:opacity-50 hover:bg-brand-700"
         >
           {saving ? (editing ? 'Salvataggio...' : 'Caricamento...') : 'Salva'}
         </button>

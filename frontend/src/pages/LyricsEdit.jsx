@@ -269,7 +269,7 @@ export default function LyricsEdit() {
         <button
           onClick={handleSave}
           disabled={saving || !dirty}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-base transition disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-on-accent font-semibold text-base transition disabled:opacity-50"
         >
           <Save className="w-5 h-5" />
           {saving ? 'Salvataggio…' : dirty ? 'Salva' : 'Nessuna modifica'}

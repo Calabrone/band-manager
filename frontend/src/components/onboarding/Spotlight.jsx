@@ -78,7 +78,7 @@ export default function Spotlight({ spot, onClose }) {
             style={{ top: rect.top, left: rect.left, width: rect.width, height: rect.height }}
           >
             {spot.target === 'song-list' && (
-              <Hand className="absolute left-1/2 top-1/3 w-9 h-9 text-white drop-shadow animate-swipe-hint" />
+              <Hand className="absolute left-1/2 top-1/3 w-9 h-9 text-on-scrim drop-shadow animate-swipe-hint" />
             )}
           </div>
         </>
@@ -94,7 +94,7 @@ export default function Spotlight({ spot, onClose }) {
           {notFound && spot.target ? "Non trovo l'elemento in questa pagina: " : ''}
           {spot.hint}
         </p>
-        <button onClick={onClose} data-testid="spotlight-ok" className="mt-3 w-full py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold">
+        <button onClick={onClose} data-testid="spotlight-ok" className="mt-3 w-full py-2.5 rounded-xl bg-brand-600 text-on-accent text-sm font-semibold">
           Ho capito
         </button>
       </div>
