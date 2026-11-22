@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { AudioLines, Plus, RefreshCw } from 'lucide-react'
 import client from '../api/client'
 import BottomNav from '../components/BottomNav'
@@ -10,6 +10,9 @@ import SwipeTabs from '../components/ui/SwipeTabs'
 import HelpButton from '../components/onboarding/HelpButton'
 import { useOnboarding } from '../context/OnboardingContext'
 import { StatusBadge, STATUS, btnPrimary, formatSize, timeAgo } from '../components/studio/ui'
+import ShareButton from '../components/ShareButton'
+import { useViewParam } from '../lib/useDeepLink'
+import { pickKey } from '../lib/share'
 import { SEGMENTS, countBySegment, groupByStatus, inSegment, migrateFilter } from '../lib/studioGroups'
 
 const ALL_STATUSES = 'idea,lavorazione,pronto,promosso,archiviato'
@@ -62,7 +65,12 @@ function EmptyState({ segment }) {
 export default function Studio() {
   const navigate = useNavigate()
   const { setCtx } = useOnboarding()
+  const [params] = useSearchParams()
+  const clearSegParam = useViewParam('seg')
   const [segment, setSegment] = useState(() => {
+    // Link condiviso (?seg=) prima del segmento ricordato
+    const fromLink = pickKey(params.get('seg'), SEGMENT_KEYS)
+    if (fromLink) return fromLink
     try {
       return migrateFilter(sessionStorage.getItem('band_studio_filter') || 'attivi')
     } catch {
@@ -93,6 +101,10 @@ export default function Studio() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    clearSegParam(null)
+  }, [clearSegParam])
 
   useEffect(() => {
     try {
@@ -128,6 +140,13 @@ export default function Studio() {
               <Plus className="w-4 h-4" />
               Nuovo brano
             </Link>
+            <ShareButton
+              kind="studioSection"
+              ctx={{ label: SEGMENTS.find((x) => x.key === segment)?.label }}
+              path="/studio"
+              params={{ seg: segment }}
+              label="Condividi questa sezione"
+            />
             <HelpButton />
           </>
         }

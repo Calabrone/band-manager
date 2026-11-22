@@ -140,3 +140,22 @@
     .animate-swipe-hint { animation: none; opacity: 1; }
   }
 }
+
+/* Evidenza dell'elemento aperto da un link condiviso (lib/useDeepLink.js) */
+@keyframes share-flash {
+  0%, 60% { box-shadow: 0 0 0 2px rgb(var(--brand-500) / 1); background-color: rgb(var(--brand-500) / 0.12); }
+  100% { box-shadow: 0 0 0 2px rgb(var(--brand-500) / 0); background-color: rgb(var(--brand-500) / 0); }
+}
+
+@layer utilities {
+  .share-flash {
+    animation: share-flash 2s ease-out forwards;
+    scroll-margin-top: 120px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .share-flash {
+      animation: none;
+      box-shadow: 0 0 0 2px rgb(var(--brand-500) / 1);
+    }
+  }
+}

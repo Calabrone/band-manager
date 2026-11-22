@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { LogOut, RefreshCw } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
@@ -11,12 +12,20 @@ import { trackStep } from '../lib/onboarding'
 import SongCard from '../components/SongCard'
 import BottomNav from '../components/BottomNav'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ShareButton from '../components/ShareButton'
+import { useViewParam } from '../lib/useDeepLink'
+import { pickKey } from '../lib/share'
 
 export default function Songs() {
   const { user, logout } = useAuth()
   const { setCtx } = useOnboarding()
   const [songs, setSongs] = useState([])
+  const [params] = useSearchParams()
+  const clearCatParam = useViewParam('cat')
   const [activeCategory, setActiveCategory] = useState(() => {
+    // Link condiviso (?cat=) prima della sezione ricordata
+    const fromLink = pickKey(params.get('cat'), CATEGORIES.map((c) => c.key))
+    if (fromLink) return fromLink
     try {
       return sessionStorage.getItem('band_category') || 'proposta'
     } catch {
@@ -43,6 +52,11 @@ export default function Songs() {
     const interval = setInterval(fetchSongs, 5000)
     return () => clearInterval(interval)
   }, [fetchSongs])
+
+  // Il parametro del link serve solo all'apertura: da qui in poi vale la sezione ricordata
+  useEffect(() => {
+    clearCatParam(null)
+  }, [clearCatParam])
 
   // Ricordata per preselezionare la sezione quando si aggiunge un brano
   useEffect(() => {
@@ -93,7 +107,14 @@ export default function Songs() {
         title="Repertorio"
         actions={
           <>
-            <span className="text-sm text-gray-400 max-w-[96px] truncate">{user?.username}</span>
+            <span className="text-sm text-gray-400 max-w-[80px] truncate">{user?.username}</span>
+            <ShareButton
+              kind="section"
+              ctx={{ label: CATEGORIES.find((c) => c.key === activeCategory)?.label }}
+              path="/"
+              params={{ cat: activeCategory }}
+              label="Condividi questa sezione"
+            />
             <HelpButton />
             <button onClick={logout} className="p-2 text-gray-400 hover:text-gray-200" aria-label="Esci">
               <LogOut className="w-5 h-5" />

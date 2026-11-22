@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Archive, ArchiveRestore, ArrowLeft, Circle, FileText, Layers, MapPin, Maximize2, MessageSquare, Music, Pencil, Rocket, Scissors, Trash2, Upload, Video } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowLeft, Circle, FileText, Layers, MapPin, Maximize2, MessageSquare, Music, Pencil, Rocket, Scissors, Share2, Trash2, Upload, Video } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import BottomNav from '../components/BottomNav'
@@ -17,11 +17,17 @@ import { useOnboarding } from '../context/OnboardingContext'
 import { trackStep } from '../lib/onboarding'
 import TakeUpload from '../components/studio/TakeUpload'
 import PromoteDialog from '../components/studio/PromoteDialog'
+import ShareButton from '../components/ShareButton'
+import { useShare } from '../lib/useShare'
+import { useDeepLink, useFocusTarget, useViewParam } from '../lib/useDeepLink'
 import {
   StatusBadge, btnPrimary, btnSecondary, errorText, formatDateTime, formatDuration, formatSize,
 } from '../components/studio/ui'
 
 const TAB_KEYS = ['contenuti', 'testo', 'video', 'commenti']
+const TAB_LABELS = { contenuti: 'Contenuti', testo: 'Testo', video: 'Video', commenti: 'Commenti' }
+// Scheda in cui sta l'elemento indicato da ?focus=
+const FOCUS_TAB = { take: 'contenuti', video: 'video', comment: 'commenti' }
 
 function readTab(pid) {
   try {
@@ -32,11 +38,15 @@ function readTab(pid) {
   }
 }
 
-function TakeRow({ take, baseTitle, onOpen }) {
+function TakeRow({ take, baseTitle, onOpen, onShare }) {
   const Icon = take.kind === 'video' ? Video : Music
   const trimmed = take.trim_start_ms !== null
   return (
-    <div onClick={onOpen} className="flex items-start gap-3 px-4 py-3 bg-gray-900 border-b border-gray-800 active:bg-gray-800 cursor-pointer select-none">
+    <div
+      onClick={onOpen}
+      data-share-id={`take-${take.id}`}
+      className="flex items-start gap-3 px-4 py-3 bg-gray-900 border-b border-gray-800 active:bg-gray-800 cursor-pointer select-none"
+    >
       <div className="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center flex-shrink-0">
         <Icon className="w-5 h-5 text-gray-400" />
       </div>
@@ -67,6 +77,15 @@ function TakeRow({ take, baseTitle, onOpen }) {
           )}
         </div>
       </div>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onShare() }}
+        className="p-2 -mr-2 text-gray-500 hover:text-brand-300 flex-shrink-0"
+        aria-label={`Condividi «${take.title}»`}
+        data-testid="share-action"
+      >
+        <Share2 className="w-4 h-4" />
+      </button>
     </div>
   )
 }
@@ -82,7 +101,13 @@ export default function StudioProject() {
   const [promoting, setPromoting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
-  const [tab, setTab] = useState(() => readTab(pid))
+  // Link condiviso: ?tab= oppure scheda dedotta da ?focus=take-|video-|comment-<id>
+  const { focus, tab: linkTab, consume } = useDeepLink({ tabs: TAB_KEYS })
+  const clearTabParam = useViewParam('tab')
+  const share = useShare()
+  const [tab, setTab] = useState(() => linkTab ?? FOCUS_TAB[focus?.kind] ?? readTab(pid))
+  const [videosReady, setVideosReady] = useState(false)
+  const [commentsReady, setCommentsReady] = useState(false)
   const [counts, setCounts] = useState({ video: null, comment: null })
   const { setCtx } = useOnboarding()
 
@@ -93,6 +118,10 @@ export default function StudioProject() {
       // storage non disponibile
     }
   }, [pid, tab])
+
+  useEffect(() => {
+    clearTabParam(null)
+  }, [clearTabParam])
 
   // Conteggi delle schede Video e Commenti noti subito (le sezioni si montano solo quando la scheda e' attiva)
   useEffect(() => {
@@ -117,6 +146,11 @@ export default function StudioProject() {
   useEffect(() => {
     load()
   }, [load])
+
+  const focusReady = !!project && (
+    focus?.kind === 'video' ? videosReady : focus?.kind === 'comment' ? commentsReady : true
+  )
+  useFocusTarget(focus, focusReady, consume)
 
   if (notFound) {
     return (
@@ -156,7 +190,11 @@ export default function StudioProject() {
 
   const archived = project.status === 'archiviato'
   const canChangeStatus = canManage && project.status !== 'promosso' && !archived
+  const shareCtx = { path: `/studio/${pid}`, title: project.title }
   const menuItems = [
+    { icon: Share2, label: `Condividi la scheda ${TAB_LABELS[tab]}`, onClick: () => share({
+      kind: 'projectTab', ctx: { ...shareCtx, label: TAB_LABELS[tab] }, path: shareCtx.path, params: { tab },
+    }) },
     { icon: Pencil, label: 'Modifica', onClick: () => navigate(`/studio/${pid}/edit`), hidden: !canManage },
     { icon: Archive, label: 'Archivia', onClick: () => changeStatus('archiviato'), hidden: !canChangeStatus },
     { icon: ArchiveRestore, label: 'Ripristina', onClick: () => changeStatus('idea'), hidden: !(canManage && archived) },
@@ -176,6 +214,7 @@ export default function StudioProject() {
           <ArrowLeft className="w-6 h-6" />
         </button>
         <h1 className="flex-1 min-w-0 text-base font-semibold text-white truncate">{project.title}</h1>
+        <ShareButton kind="project" ctx={shareCtx} path={shareCtx.path} label="Condividi il brano di prova" />
         <Menu items={menuItems} />
       </header>
 
@@ -230,7 +269,13 @@ export default function StudioProject() {
               </p>
             ) : (
               project.takes.map((t) => (
-                <TakeRow key={t.id} take={t} baseTitle={titles[t.base_take_id]} onOpen={() => navigate(`/studio/${pid}/takes/${t.id}`)} />
+                <TakeRow
+                  key={t.id}
+                  take={t}
+                  baseTitle={titles[t.base_take_id]}
+                  onOpen={() => navigate(`/studio/${pid}/takes/${t.id}`)}
+                  onShare={() => share({ kind: 'take', ctx: { title: project.title, item: t.title }, path: `/studio/${pid}/takes/${t.id}` })}
+                />
               ))
             )}
           </>
@@ -273,13 +318,21 @@ export default function StudioProject() {
 
         {tab === 'video' && (
           <div className="pt-4">
-            <VideoSection basePath={`/studio/projects/${pid}`} onCount={(n) => setCounts((c) => ({ ...c, video: n }))} />
+            <VideoSection
+              basePath={`/studio/projects/${pid}`}
+              onCount={(n) => { setCounts((c) => ({ ...c, video: n })); setVideosReady(true) }}
+              shareCtx={shareCtx}
+            />
           </div>
         )}
 
         {tab === 'commenti' && (
           <div className="pb-4">
-            <CommentSection basePath={`/studio/projects/${pid}`} onCount={(n) => setCounts((c) => ({ ...c, comment: n }))} />
+            <CommentSection
+              basePath={`/studio/projects/${pid}`}
+              onCount={(n) => { setCounts((c) => ({ ...c, comment: n })); setCommentsReady(true) }}
+              shareCtx={shareCtx}
+            />
           </div>
         )}
       </SwipeTabs>

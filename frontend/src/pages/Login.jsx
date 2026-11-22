@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Music2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { readCachedBandName } from '../context/ConfigContext'
+import { safeNext } from '../lib/share'
 
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -18,7 +20,8 @@ export default function Login() {
     setLoading(true)
     try {
       const u = await login(username, password)
-      navigate(u.must_change_password ? '/profile' : '/')
+      // Ritorno al link condiviso aperto prima del login (solo percorsi interni)
+      navigate(u.must_change_password ? '/profile' : (safeNext(params.get('next')) ?? '/'), { replace: true })
     } catch (err) {
       setError(err.response?.data?.detail || 'Errore di accesso')
     } finally {

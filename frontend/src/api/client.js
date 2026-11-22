@@ -22,7 +22,13 @@ client.interceptors.response.use(
     if (err.response?.status === 401 && !isLoginAttempt) {
       localStorage.removeItem('band_token')
       localStorage.removeItem('band_user')
-      window.location.href = import.meta.env.BASE_URL + 'login'
+      const base = import.meta.env.BASE_URL
+      let dest = window.location.pathname
+      dest = '/' + (dest.startsWith(base) ? dest.slice(base.length) : dest.replace(/^\/+/, ''))
+      if (dest === '/login') return Promise.reject(err)
+      dest += window.location.search
+      // Ricorda la pagina per tornarci dopo il login (link condivisi, sessione scaduta)
+      window.location.href = base + 'login' + (dest === '/' ? '' : '?next=' + encodeURIComponent(dest))
     }
     return Promise.reject(err)
   }

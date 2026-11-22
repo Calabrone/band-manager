@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { ConfigProvider } from './context/ConfigContext'
 import { OnboardingProvider } from './context/OnboardingContext'
 import { ThemeProvider } from './context/ThemeContext'
+import { ToastProvider } from './context/ToastContext'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import ForgotPassword from './pages/ForgotPassword'
@@ -23,7 +24,12 @@ import Appearance from './pages/Appearance'
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, isAdmin } = useAuth()
   const location = useLocation()
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) {
+    // Ricorda la destinazione (link condiviso) per tornarci dopo il login
+    const dest = location.pathname + location.search
+    const to = dest === '/' ? '/login' : `/login?next=${encodeURIComponent(dest)}`
+    return <Navigate to={to} replace />
+  }
   // Password di default: l'unica pagina utilizzabile e' il profilo
   if (user.must_change_password && location.pathname !== '/profile') {
     return <Navigate to="/profile" replace />
@@ -64,9 +70,11 @@ export default function App() {
     <AuthProvider>
       <ThemeProvider>
         <ConfigProvider>
-          <OnboardingProvider>
-            <AppRoutes />
-          </OnboardingProvider>
+          <ToastProvider>
+            <OnboardingProvider>
+              <AppRoutes />
+            </OnboardingProvider>
+          </ToastProvider>
         </ConfigProvider>
       </ThemeProvider>
     </AuthProvider>

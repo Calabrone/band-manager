@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, ExternalLink, Mic, Pencil, Plus, Trash2, Video, X } from 'lucide-react'
+import { Download, ExternalLink, Mic, Pencil, Plus, Share2, Trash2, Video, X } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import ConfirmDialog from './ConfirmDialog'
+import { ShareAction } from './ShareButton'
+import { useShare } from '../lib/useShare'
 
 const AUDIO_EXTS = ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'oga', 'opus', 'flac', 'amr', '3gp', '3gpp', 'caf', 'webm', 'mp4']
 const AUDIO_ACCEPT = ['audio/*', ...AUDIO_EXTS.map(e => `.${e}`)].join(',')
@@ -55,12 +57,24 @@ function Field({ label, children }) {
   )
 }
 
-function SectionHeader({ icon: Icon, title, count, onAdd }) {
+function SectionHeader({ icon: Icon, title, count, onAdd, sectionShare }) {
+  const share = useShare()
   return (
     <div className="flex items-center justify-between mb-3">
       <h2 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
         <Icon className="w-4 h-4" />
         {title} ({count})
+        {sectionShare && (
+          <button
+            type="button"
+            onClick={() => share(sectionShare)}
+            className="p-1 text-gray-500 hover:text-brand-300"
+            aria-label={`Condividi ${title.toLowerCase()}`}
+            data-testid="share-section"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </h2>
       <button
         onClick={onAdd}
@@ -73,9 +87,13 @@ function SectionHeader({ icon: Icon, title, count, onAdd }) {
   )
 }
 
-function ItemActions({ onEdit, onDelete }) {
+function ItemActions({ mine, share, onEdit, onDelete }) {
+  if (!mine && !share) return null
   return (
     <div className="flex items-center gap-3 mt-1">
+      {share && <ShareAction {...share} />}
+      {mine && (
+        <>
       <button onClick={onEdit} className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-400">
         <Pencil className="w-3 h-3" />
         Modifica
@@ -84,6 +102,8 @@ function ItemActions({ onEdit, onDelete }) {
         <Trash2 className="w-3 h-3" />
         Elimina
       </button>
+        </>
+      )}
     </div>
   )
 }
@@ -194,10 +214,10 @@ function VideoForm({ basePath, video, onSaved, onClose }) {
   )
 }
 
-function VideoItem({ video, mine, onEdit, onDelete }) {
+function VideoItem({ video, mine, share, onEdit, onDelete }) {
   const [thumbOk, setThumbOk] = useState(true)
   return (
-    <div className="flex gap-3">
+    <div className="flex gap-3 rounded-xl" data-share-id={`video-${video.id}`}>
       <a
         href={video.url}
         target="_blank"
@@ -228,14 +248,15 @@ function VideoItem({ video, mine, onEdit, onDelete }) {
           <ExternalLink className="w-3 h-3 flex-shrink-0" />
         </a>
         <ItemMeta item={video} />
-        {mine && <ItemActions onEdit={onEdit} onDelete={onDelete} />}
+        <ItemActions mine={mine} share={share} onEdit={onEdit} onDelete={onDelete} />
       </div>
     </div>
   )
 }
 
 // basePath: dove stanno i link video (default: quelli del brano `songId`; per un brano di prova `/studio/projects/<pid>`)
-export function VideoSection({ songId, basePath = `/songs/${songId}`, onCount }) {
+// shareCtx: { path, title, artist? } per condividere i singoli video (focus=video-<id>); sectionShare: argomenti di share() per la sezione
+export function VideoSection({ songId, basePath = `/songs/${songId}`, onCount, shareCtx, sectionShare }) {
   const { user } = useAuth()
   const [videos, setVideos] = useState([])
   const [videosLoaded, setVideosLoaded] = useState(false)
@@ -246,7 +267,7 @@ export function VideoSection({ songId, basePath = `/songs/${songId}`, onCount })
     let cancelled = false
     client.get(`${basePath}/videos`).then(({ data }) => {
       if (!cancelled) { setVideos(data); setVideosLoaded(true) }
-    }).catch(() => {})
+    }).catch(() => { if (!cancelled) setVideosLoaded(true) })
     return () => { cancelled = true }
   }, [basePath])
 
@@ -276,7 +297,7 @@ export function VideoSection({ songId, basePath = `/songs/${songId}`, onCount })
 
   return (
     <div className="px-4 mb-6">
-      <SectionHeader icon={Video} title="Video prove" count={videos.length} onAdd={() => setForm('new')} />
+      <SectionHeader icon={Video} title="Video prove" count={videos.length} onAdd={() => setForm('new')} sectionShare={sectionShare} />
       {videos.length === 0 ? (
         <p className="text-sm text-gray-600 italic">Nessun video ancora.</p>
       ) : (
@@ -286,6 +307,12 @@ export function VideoSection({ songId, basePath = `/songs/${songId}`, onCount })
               key={v.id}
               video={v}
               mine={v.user_id === user?.id}
+              share={shareCtx && {
+                kind: 'video',
+                ctx: { title: shareCtx.title, artist: shareCtx.artist, item: v.title },
+                path: shareCtx.path,
+                params: { focus: `video-${v.id}` },
+              }}
               onEdit={() => setForm(v)}
               onDelete={() => setDeleteTarget(v)}
             />
@@ -438,10 +465,10 @@ function canPlay(mime) {
   }
 }
 
-function AudioItem({ audio, mine, onEdit, onDelete }) {
+function AudioItem({ audio, mine, share, onEdit, onDelete }) {
   const playable = canPlay(audio.mime)
   return (
-    <div>
+    <div className="rounded-xl" data-share-id={`audio-${audio.id}`}>
       <p className="text-sm font-medium text-white">{audio.title}</p>
       <ItemMeta item={audio} />
       {playable ? (
@@ -459,6 +486,7 @@ function AudioItem({ audio, mine, onEdit, onDelete }) {
           <Download className="w-3 h-3" />
           Scarica ({formatSize(audio.size)})
         </a>
+        {share && <ShareAction {...share} />}
         {mine && (
           <>
             <button onClick={onEdit} className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-400">
@@ -476,7 +504,7 @@ function AudioItem({ audio, mine, onEdit, onDelete }) {
   )
 }
 
-function AudioSection({ songId }) {
+function AudioSection({ songId, onLoaded, shareCtx, sectionShare }) {
   const { user } = useAuth()
   const [audios, setAudios] = useState([])
   const [maxBytes, setMaxBytes] = useState(0)
@@ -489,7 +517,8 @@ function AudioSection({ songId }) {
       if (cancelled) return
       setAudios(list.data)
       setMaxBytes(cfg.data.max_upload_bytes ?? 0)
-    }).catch(() => {})
+      onLoaded?.()
+    }).catch(() => onLoaded?.())
     return () => { cancelled = true }
   }, [songId])
 
@@ -515,7 +544,7 @@ function AudioSection({ songId }) {
 
   return (
     <div className="px-4 mb-6">
-      <SectionHeader icon={Mic} title="Audio prove" count={audios.length} onAdd={() => setForm('new')} />
+      <SectionHeader icon={Mic} title="Audio prove" count={audios.length} onAdd={() => setForm('new')} sectionShare={sectionShare} />
       {audios.length === 0 ? (
         <p className="text-sm text-gray-600 italic">Nessun audio ancora.</p>
       ) : (
@@ -525,6 +554,12 @@ function AudioSection({ songId }) {
               key={a.id}
               audio={a}
               mine={a.user_id === user?.id}
+              share={shareCtx && {
+                kind: 'audio',
+                ctx: { title: shareCtx.title, artist: shareCtx.artist, item: a.title },
+                path: shareCtx.path,
+                params: { focus: `audio-${a.id}` },
+              }}
               onEdit={() => setForm(a)}
               onDelete={() => setDeleteTarget(a)}
             />
@@ -552,11 +587,24 @@ function AudioSection({ songId }) {
   )
 }
 
-export default function SongMedia({ songId }) {
+// shareCtx: { path, title, artist } della cover; onLoaded: chiamata quando video e audio sono caricati
+export default function SongMedia({ songId, shareCtx, onLoaded }) {
+  const [videosReady, setVideosReady] = useState(false)
+  const [audiosReady, setAudiosReady] = useState(false)
+  useEffect(() => {
+    if (videosReady && audiosReady) onLoaded?.()
+  }, [videosReady, audiosReady]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sectionShare = shareCtx && {
+    kind: 'songPart',
+    ctx: { title: shareCtx.title, artist: shareCtx.artist, label: 'video e audio delle prove' },
+    path: shareCtx.path,
+    params: { focus: 'media' },
+  }
   return (
-    <>
-      <VideoSection songId={songId} />
-      <AudioSection songId={songId} />
-    </>
+    <div data-share-id="media" className="rounded-xl">
+      <VideoSection songId={songId} onCount={() => setVideosReady(true)} shareCtx={shareCtx} sectionShare={sectionShare} />
+      <AudioSection songId={songId} onLoaded={() => setAudiosReady(true)} shareCtx={shareCtx} sectionShare={sectionShare} />
+    </div>
   )
 }

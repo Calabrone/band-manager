@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, AudioLines, ExternalLink, FileText, Guitar, Layers, Maximize2, Music, Pencil, RefreshCw, Youtube } from 'lucide-react'
+import { ArrowLeft, AudioLines, ExternalLink, FileText, Guitar, Layers, Maximize2, Music, Pencil, RefreshCw, Share2, Youtube } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -12,6 +12,9 @@ import SongMedia from '../components/SongMedia'
 import LyricsView from '../components/LyricsView'
 import Teleprompter from '../components/Teleprompter'
 import CoverPicker from '../components/CoverPicker'
+import ShareButton from '../components/ShareButton'
+import { useShare } from '../lib/useShare'
+import { useDeepLink, useFocusTarget } from '../lib/useDeepLink'
 
 const CATEGORY_LABELS = {
   proposta: 'Proposta',
@@ -41,6 +44,19 @@ export default function SongDetail() {
   }, [id, setCtx])
   const [pickingCover, setPickingCover] = useState(false)
   const [moving, setMoving] = useState(null) // null | { message, busy, error }
+
+  // Link condiviso: ?focus=lyrics|media|comments|audio-<id>|video-<id>|comment-<id>
+  const share = useShare()
+  const { focus, consume } = useDeepLink()
+  const [mediaReady, setMediaReady] = useState(false)
+  const [commentsReady, setCommentsReady] = useState(false)
+  const focusReady = !loading && (
+    !focus ? false
+      : ['media', 'audio', 'video'].includes(focus.kind) ? mediaReady
+        : ['comments', 'comment'].includes(focus.kind) ? commentsReady
+          : true
+  )
+  useFocusTarget(focus, focusReady && !!song, consume)
 
   useEffect(() => {
     let cancelled = false
@@ -122,6 +138,8 @@ export default function SongDetail() {
   }
 
   const canMove = song && (song.proposed_by_id === user?.id || isAdmin())
+  const shareCtx = song && { path: `/songs/${id}`, title: song.title, artist: song.artist }
+  const sharePart = (label, part) => share({ kind: 'songPart', ctx: { ...shareCtx, label }, path: shareCtx.path, params: { focus: part } })
 
   if (loading) {
     return (
@@ -143,13 +161,14 @@ export default function SongDetail() {
     <div className="min-h-screen pb-8">
       {/* Header */}
       <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-gray-950/95 backdrop-blur border-b border-gray-800">
-        <button onClick={() => navigate(-1)} className="p-1 text-gray-400 hover:text-gray-200">
+        <button onClick={() => navigate(-1)} className="p-1 text-gray-400 hover:text-gray-200" aria-label="Indietro">
           <ArrowLeft className="w-6 h-6" />
         </button>
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-semibold text-white truncate">{song.title}</h1>
           <p className="text-xs text-gray-400 truncate">{song.artist}</p>
         </div>
+        <ShareButton kind="song" ctx={shareCtx} path={shareCtx.path} label="Condividi la cover" />
         {canMove && (
           <button onClick={openMove} className="p-2 text-gray-400 hover:text-gray-200" title="Sposta in Prove" aria-label="Sposta in Prove">
             <Layers className="w-5 h-5" />
@@ -158,6 +177,7 @@ export default function SongDetail() {
         <button
           onClick={() => navigate(`/songs/${id}/edit`)}
           className="p-2 text-gray-400 hover:text-gray-200"
+          aria-label="Modifica"
         >
           <Pencil className="w-5 h-5" />
         </button>
@@ -246,7 +266,7 @@ export default function SongDetail() {
       )}
 
       {/* Video e audio delle prove */}
-      <SongMedia songId={id} />
+      <SongMedia songId={id} shareCtx={shareCtx} onLoaded={() => setMediaReady(true)} />
 
       {/* Re-enrich */}
       <div className="px-4 mb-4">
@@ -277,9 +297,20 @@ export default function SongDetail() {
 
       {/* Lyrics */}
       {song.lyrics ? (
-        <div className="px-4">
+        <div className="px-4 rounded-xl" data-share-id="lyrics">
           <div className="flex items-center justify-between gap-2 mb-3">
-            <h2 className="text-sm font-semibold text-gray-300">Testo</h2>
+            <h2 className="text-sm font-semibold text-gray-300 flex items-center gap-1">
+              Testo
+              <button
+              type="button"
+              onClick={() => sharePart('testo', 'lyrics')}
+              className="p-1 text-gray-500 hover:text-brand-300"
+              aria-label="Condividi il testo"
+              data-testid="share-section"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+            </button>
+            </h2>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => navigate(`/songs/${id}/lyrics`)}
@@ -301,7 +332,7 @@ export default function SongDetail() {
           <LyricsView text={song.lyrics} fontSize={15} className="text-gray-300 font-sans" />
         </div>
       ) : (
-        <div className="px-4">
+        <div className="px-4 rounded-xl" data-share-id="lyrics">
           <h2 className="text-sm font-semibold text-gray-300 mb-2">Testo</h2>
           <p className="text-sm text-gray-500 italic mb-3">Testo non disponibile</p>
           <button
@@ -335,8 +366,13 @@ export default function SongDetail() {
 
       {fullscreen && song.lyrics && <Teleprompter song={song} onClose={() => setFullscreen(false)} />}
 
-      <div className="mt-8 border-t border-gray-800 pt-4 pb-4">
-        <CommentSection songId={id} />
+      <div className="mt-8 border-t border-gray-800 pt-4 pb-4" data-share-id="comments">
+        <CommentSection
+          songId={id}
+          onCount={() => setCommentsReady(true)}
+          shareCtx={shareCtx}
+          sectionShare={{ kind: 'songPart', ctx: { ...shareCtx, label: 'commenti' }, path: shareCtx.path, params: { focus: 'comments' } }}
+        />
       </div>
     </div>
   )

@@ -1,22 +1,24 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Check, CornerDownRight, MessageCircle, Pencil, Send, Trash2, X } from 'lucide-react'
+import { Check, CornerDownRight, MessageCircle, Pencil, Send, Share2, Trash2, X } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import ConfirmDialog from './ConfirmDialog'
 import { trackStep } from '../lib/onboarding'
+import { ShareAction } from './ShareButton'
+import { useShare } from '../lib/useShare'
 
 function CommentItem({
   comment, currentUser, isAdmin,
   isEditing, editText, onEditTextChange,
   onStartEdit, onCancelEdit, onSaveEdit,
-  onDelete, onReply,
+  onDelete, onReply, share,
 }) {
   const canEdit = comment.user_id === currentUser?.id
   const canDelete = canEdit || isAdmin
   const isEdited = comment.updated_at !== comment.created_at
 
   return (
-    <div className="text-sm">
+    <div className="text-sm rounded-lg" data-share-id={`comment-${comment.id}`}>
       <div className="flex items-baseline gap-2 mb-1">
         <span className="text-white font-medium text-xs">{comment.username}</span>
         <span className="text-gray-600 text-xs">
@@ -59,6 +61,7 @@ function CommentItem({
 
       {!isEditing && (
         <div className="flex items-center gap-3 mt-1">
+          {share && <ShareAction {...share} />}
           {onReply && (
             <button
               onClick={onReply}
@@ -93,8 +96,16 @@ function CommentItem({
 }
 
 // basePath: dove stanno i commenti (default: quelli del brano `songId`; per un brano di prova `/studio/projects/<pid>`)
-export default function CommentSection({ songId, basePath = `/songs/${songId}`, onCount }) {
+// shareCtx: { path, title, artist? } per condividere i singoli commenti (focus=comment-<id>); sectionShare: argomenti di share() per la sezione
+export default function CommentSection({ songId, basePath = `/songs/${songId}`, onCount, shareCtx, sectionShare }) {
   const { user, isAdmin } = useAuth()
+  const share = useShare()
+  const shareOf = (c) => shareCtx && {
+    kind: 'comment',
+    ctx: { title: shareCtx.title, artist: shareCtx.artist, author: c.username },
+    path: shareCtx.path,
+    params: { focus: `comment-${c.id}` },
+  }
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(true)
   const [newText, setNewText] = useState('')
@@ -206,6 +217,17 @@ export default function CommentSection({ songId, basePath = `/songs/${songId}`, 
       <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
         <MessageCircle className="w-4 h-4" />
         Commenti ({comments.length})
+        {sectionShare && (
+          <button
+            type="button"
+            onClick={() => share(sectionShare)}
+            className="p-1 text-gray-500 hover:text-brand-300"
+            aria-label="Condividi i commenti"
+            data-testid="share-section"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </h2>
 
       <form onSubmit={handleSubmitTop} className="flex gap-2 mb-6">
@@ -247,6 +269,7 @@ export default function CommentSection({ songId, basePath = `/songs/${songId}`, 
                 onSaveEdit={() => handleSaveEdit(thread.id)}
                 onDelete={() => setDeleteTarget(thread)}
                 onReply={() => startReply(thread.id)}
+                share={shareOf(thread)}
               />
 
               {thread.replies.length > 0 && (
@@ -265,6 +288,7 @@ export default function CommentSection({ songId, basePath = `/songs/${songId}`, 
                       onSaveEdit={() => handleSaveEdit(reply.id)}
                       onDelete={() => setDeleteTarget(reply)}
                       onReply={null}
+                      share={shareOf(reply)}
                     />
                   ))}
                 </div>

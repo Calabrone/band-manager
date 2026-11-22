@@ -19,7 +19,7 @@ export default function Tabs({ items, value, onChange, stickyClass = 'top-0', ar
             aria-selected={active}
             data-tab={key}
             onClick={() => onChange(key)}
-            className={`flex-1 min-w-0 py-3 px-1 text-sm font-medium transition-colors whitespace-nowrap ${
+            className={`flex-1 min-w-0 overflow-hidden py-3 px-1 text-sm font-medium transition-colors whitespace-nowrap ${
               active ? 'text-brand-400' : 'text-gray-400 hover:text-gray-200'
             }`}
           >

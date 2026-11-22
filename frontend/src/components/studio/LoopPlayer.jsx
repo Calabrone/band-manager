@@ -56,9 +56,10 @@ function Slider({ label, value, min, max, step = 1, onChange, suffix = '', disab
  * Player di un contenuto della Sala prove: loop A-B con maniglie e rifiniture, taglio predefinito dell'autore,
  * zoom, conteggio, volume e, per le sovraincisioni, base allineata con offset e mixer.
  * Il loop è temporaneo (solo di chi ascolta); solo il taglio salvato dall'autore è visibile a tutti.
+ * initial: { time?, loop?: {a,b} } da un link condiviso (posizione iniziale / loop A-B attivo), letto solo al montaggio.
  */
 const LoopPlayer = forwardRef(function LoopPlayer(
-  { take, markers = [], isAuthor, projectBpm, onAddMarker, onSaveTrim, onSaveOffset, onOffsetChange, hint },
+  { take, markers = [], isAuthor, projectBpm, onAddMarker, onSaveTrim, onSaveOffset, onOffsetChange, hint, initial, onLoopChange },
   ref
 ) {
   const videoRef = useRef(null)
@@ -68,9 +69,14 @@ const LoopPlayer = forwardRef(function LoopPlayer(
   const peaks = take.peaks || pb.localPeaks
   const hasTrim = take.trim_start_ms !== null && take.trim_start_ms !== undefined
 
-  const touched = useRef(false)
+  const startAt = useRef(initial ?? null)
+  const touched = useRef(!!initial?.loop)
+  const linkLoop = useRef(!!initial?.loop) // loop impostato dal link, non ancora toccato dall'utente
   const lastDuration = useRef(0)
-  const [loop, setLoopState] = useState(() => loopFromTrim(take.trim_start_ms, take.trim_end_ms, take.duration_ms || 0))
+  const [loop, setLoopState] = useState(() =>
+    initial?.loop
+      ? { a: initial.loop.a, b: initial.loop.b, active: true }
+      : loopFromTrim(take.trim_start_ms, take.trim_end_ms, take.duration_ms || 0))
   const [view, setView] = useState(() => fullView(take.duration_ms || 0))
   const [posDisplay, setPosDisplay] = useState(0)
   const [redraw, setRedraw] = useState(0)
@@ -92,6 +98,14 @@ const LoopPlayer = forwardRef(function LoopPlayer(
   useEffect(() => {
     if (!duration) return
     if (!touched.current) setLoopState(loopFromTrim(take.trim_start_ms, take.trim_end_ms, duration))
+    // loop arrivato da un link: limitato alla durata reale (se non resta nulla, niente loop)
+    else if (startAt.current?.loop) {
+      setLoopState((l) => {
+        const b = Math.min(l.b, duration)
+        const a = Math.min(l.a, b)
+        return b > a ? { a, b, active: l.active } : { a: 0, b: duration, active: false }
+      })
+    }
     setView((v) => (v.spanMs === 0 || (v.startMs === 0 && v.spanMs >= lastDuration.current - 1) ? fullView(duration) : v))
     lastDuration.current = duration
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,18 +113,38 @@ const LoopPlayer = forwardRef(function LoopPlayer(
 
   // Guida: il passo "loop" si spunta quando l'utente attiva un loop che non copre tutto il brano
   useEffect(() => {
-    if (touched.current && loop.active && loop.b > loop.a && duration && (loop.a > 0 || loop.b < duration - 50)) trackStep('loop')
+    if (touched.current && !linkLoop.current && loop.active && loop.b > loop.a && duration && (loop.a > 0 || loop.b < duration - 50)) trackStep('loop')
   }, [loop, duration])
+
+  // Chi ospita il player sa se c'è un loop attivo (voce «Condividi il loop A–B»)
+  const loopKey = loop.active && loop.b > loop.a ? `${Math.round(loop.a)}-${Math.round(loop.b)}` : ''
+  useEffect(() => {
+    onLoopChange?.(loopKey ? { a: Math.round(loop.a), b: Math.round(loop.b) } : null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loopKey])
 
   // Il motore riceve il loop (senza loop nativo in modalità "conteggio a ogni giro": lo gestisce il ciclo sotto)
   useEffect(() => {
     if (status === 'ready') api.setLoop(lapMode ? { ...loop, active: false } : loop)
   }, [status, loop, lapMode, api])
 
-  // Pronto: parte da A se c'è un taglio, altrimenti dall'inizio
+  // Pronto: parte da A se c'è un taglio, altrimenti dall'inizio; da un link condiviso, dall'istante indicato
   useEffect(() => {
     if (status !== 'ready') return
-    api.seek(loop.active ? loop.a : 0)
+    const start = startAt.current
+    startAt.current = null
+    if (start && !start.loop && start.time !== null && start.time !== undefined) {
+      const t = Math.max(0, Math.min(start.time, duration || start.time))
+      if (loop.active && (t < loop.a || t >= loop.b)) {
+        // istante fuori dal taglio dell'autore: si ascolta senza loop
+        setLoopState((l) => ({ ...l, active: false }))
+        api.setLoop({ ...loop, active: false })
+      }
+      api.seek(t)
+      setView((v) => followCursor(v, t, duration))
+    } else {
+      api.seek(loop.active ? loop.a : 0)
+    }
     setPosDisplay(api.getPosition())
     bump()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,6 +224,7 @@ const LoopPlayer = forwardRef(function LoopPlayer(
 
   function changeLoop(next, activate = true) {
     touched.current = true
+    linkLoop.current = false
     setLoopState((l) => ({ a: next.a, b: next.b, active: activate ? true : l.active }))
   }
 
@@ -204,6 +239,7 @@ const LoopPlayer = forwardRef(function LoopPlayer(
     if (loop.active && (ms < loop.a || ms >= loop.b)) {
       // un punto fuori dal loop: lo si disattiva, altrimenti il motore ripartirebbe da A
       touched.current = true
+      linkLoop.current = false
       setLoopState((l) => ({ ...l, active: false }))
       api.setLoop({ ...loop, active: false })
     }
@@ -212,7 +248,13 @@ const LoopPlayer = forwardRef(function LoopPlayer(
     if (!api.isPlaying()) await startPlayback({ count: false })
   }
 
-  useImperativeHandle(ref, () => ({ seekAndPlay, pause: () => api.pause(), getPosition: () => api.getPosition() }))
+  useImperativeHandle(ref, () => ({
+    seekAndPlay,
+    pause: () => api.pause(),
+    getPosition: () => api.getPosition(),
+    // loop A-B attivo (per «Condividi loop»), altrimenti null
+    getLoop: () => (loop.active && loop.b > loop.a ? { a: Math.round(loop.a), b: Math.round(loop.b) } : null),
+  }))
 
   function setPoint(which) {
     const pos = api.getPosition()
@@ -227,6 +269,7 @@ const LoopPlayer = forwardRef(function LoopPlayer(
 
   function toggleLoop() {
     touched.current = true
+    linkLoop.current = false
     setLoopState((l) => {
       const base = l.b > l.a ? l : { a: 0, b: duration }
       return { a: base.a, b: base.b, active: !l.active }
@@ -235,11 +278,13 @@ const LoopPlayer = forwardRef(function LoopPlayer(
 
   function showAll() {
     touched.current = true
+    linkLoop.current = false
     setLoopState({ a: 0, b: duration, active: false })
   }
 
   function useAuthorTrim() {
     touched.current = true
+    linkLoop.current = false
     setLoopState(loopFromTrim(take.trim_start_ms, take.trim_end_ms, duration))
     doSeek(take.trim_start_ms)
   }
@@ -321,7 +366,7 @@ const LoopPlayer = forwardRef(function LoopPlayer(
   const offsetDirty = offset !== (take.offset_ms || 0)
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-testid="loop-player" data-status={status} data-loop={loopKey}>
       {take.kind === 'video' && (
         <video
           ref={videoRef}
@@ -368,7 +413,7 @@ const LoopPlayer = forwardRef(function LoopPlayer(
 
       {/* Tempo e zoom */}
       <div className="flex items-center justify-between text-xs text-gray-400">
-        <span className="font-mono">{formatTime(posDisplay)} / {formatTime(duration)}</span>
+        <span className="font-mono" data-testid="player-time">{formatTime(posDisplay)} / {formatTime(duration)}</span>
         <div className="flex items-center gap-1">
           <Btn onClick={() => zoomBy(0.5)} disabled={view.spanMs >= duration} title="Riduci zoom"><ZoomOut className="w-4 h-4" /></Btn>
           <span className="w-9 text-center font-mono">×{zoomLevel(view, duration).toFixed(zoomLevel(view, duration) < 10 ? 1 : 0)}</span>

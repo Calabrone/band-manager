@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { trackStep } from '../../lib/onboarding'
-import { Clock, Flag, MessageSquare, Pencil, Send, Trash2 } from 'lucide-react'
+import { Clock, Flag, MessageSquare, Pencil, Send, Share2, Trash2 } from 'lucide-react'
 import client from '../../api/client'
 import { formatClock } from '../../lib/loop'
 import { insertRef, markerToken, parseRefs, timeToken } from '../../lib/refs'
@@ -39,7 +39,7 @@ function CommentBody({ text, markers, onSeekMs }) {
 }
 
 /** Commenti semplici di un contenuto, con citazione di marker e istanti. */
-export default function StudioComments({ takeId, comments, markers, userId, getPosition, onSeekMs, onCreateMarker, onChanged }) {
+export default function StudioComments({ takeId, comments, markers, userId, getPosition, onSeekMs, onCreateMarker, onChanged, onShare }) {
   const [text, setText] = useState('')
   const [picker, setPicker] = useState(false)
   const [newLabel, setNewLabel] = useState('')
@@ -117,9 +117,16 @@ export default function StudioComments({ takeId, comments, markers, userId, getP
       <ul className="space-y-2 mb-3">
         {comments.length === 0 && <li className="text-sm text-gray-600 italic">Nessun commento ancora.</li>}
         {comments.map((c) => (
-          <li key={c.id} id={`c-${c.id}`} className="px-3 py-2 rounded-xl bg-gray-900 border border-gray-800 scroll-mt-20">
+          <li key={c.id} id={`c-${c.id}`} data-share-id={`comment-${c.id}`} className="px-3 py-2 rounded-xl bg-gray-900 border border-gray-800 scroll-mt-20">
             <div className="flex items-center justify-between gap-2 mb-1">
               <span className="text-xs text-gray-400"><span className="text-gray-200 font-medium">{c.username}</span> · {formatDateTime(c.created_at)}</span>
+              <span className="flex items-center">
+                {onShare && editing?.id !== c.id && (
+                  <button type="button" onClick={() => onShare(c)} className="p-1 text-gray-500 hover:text-brand-300"
+                          aria-label="Condividi il commento" title="Condividi" data-testid="share-action">
+                    <Share2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               {c.user_id === userId && editing?.id !== c.id && (
                 <span className="flex items-center">
                   <button type="button" onClick={() => setEditing({ id: c.id, content: c.content })} className="p-1 text-gray-500 hover:text-blue-400" title="Modifica">
@@ -130,6 +137,7 @@ export default function StudioComments({ takeId, comments, markers, userId, getP
                   </button>
                 </span>
               )}
+              </span>
             </div>
             {editing?.id === c.id ? (
               <div className="space-y-2">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Circle, Download, Pencil, Trash2 } from 'lucide-react'
+import { ArrowLeft, Circle, Clock, Download, Pencil, Repeat, Trash2 } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import Menu from '../components/ui/Menu'
@@ -13,6 +13,9 @@ import MarkerList from '../components/studio/MarkerList'
 import StudioComments from '../components/studio/StudioComments'
 import { Field, Modal, btnPrimary, btnSecondary, errorText, formatDateTime, formatSize, inputCls } from '../components/studio/ui'
 import { formatClock } from '../lib/loop'
+import ShareButton from '../components/ShareButton'
+import { useShare } from '../lib/useShare'
+import { useDeepLink, useFocusTarget } from '../lib/useDeepLink'
 
 function TakeEditDialog({ take, onClose, onSaved }) {
   const [title, setTitle] = useState(take.title)
@@ -100,7 +103,12 @@ export default function StudioTake() {
   const [markerAt, setMarkerAt] = useState(null)
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [tab, setTab] = useState('marker')
+  // Link condiviso: ?t=<ms>, ?a=&b= (loop), ?focus=marker-<id>|comment-<id>
+  const { focus, time: linkTime, loop: linkLoop, consume } = useDeepLink()
+  const share = useShare()
+  const [tab, setTab] = useState(focus?.kind === 'comment' ? 'commenti' : 'marker')
+  const [activeLoop, setActiveLoop] = useState(null)
+  const initialRef = useRef(undefined)
   const { setCtx } = useOnboarding()
 
   const reloadMarkers = useCallback(async () => {
@@ -133,6 +141,20 @@ export default function StudioTake() {
     })
     return () => { cancelled = true }
   }, [pid, tid, setCtx])
+
+  const loaded = !!take && !!project
+  // Il marker indicato dal link: posizione iniziale del player
+  if (loaded && initialRef.current === undefined) {
+    const marker = focus?.kind === 'marker' ? markers.find((m) => m.id === focus.id) : null
+    initialRef.current = linkLoop ? { loop: linkLoop }
+      : linkTime !== null ? { time: linkTime }
+        : marker ? { time: marker.time_ms }
+          : null
+  }
+  useEffect(() => {
+    if (loaded && !focus && (linkTime !== null || linkLoop)) consume()
+  }, [loaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  useFocusTarget(focus?.kind === 'marker' || focus?.kind === 'comment' ? focus : null, loaded, consume)
 
   if (notFound) {
     return (
@@ -197,7 +219,17 @@ export default function StudioTake() {
     setTimeout(() => document.getElementById(`c-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60)
   }
 
+  const sharePath = `/studio/${pid}/takes/${tid}`
+  const shareCtx = { title: project.title, item: take.title }
   const menuItems = [
+    { icon: Clock, label: 'Condividi da questo punto', onClick: () => {
+      const time = Math.round(playerRef.current?.getPosition() ?? 0)
+      share({ kind: 'take', ctx: { ...shareCtx, time }, path: sharePath, params: { t: time || null } })
+    } },
+    { icon: Repeat, label: 'Condividi il loop A–B', hidden: !activeLoop, onClick: () => {
+      const l = playerRef.current?.getLoop() ?? activeLoop
+      if (l) share({ kind: 'take', ctx: { ...shareCtx, loop: l }, path: sharePath, params: { a: l.a, b: l.b } })
+    } },
     { icon: Download, label: 'Scarica il file', onClick: () => { window.location.href = `${take.file_url}&dl=1` } },
     { icon: Pencil, label: 'Modifica', onClick: () => setEditing(true), hidden: !isAuthor },
     { icon: Trash2, label: 'Elimina', onClick: () => setConfirmDelete(true), danger: true, hidden: !isAuthor },
@@ -217,6 +249,7 @@ export default function StudioTake() {
           <h1 className="text-base font-semibold text-white truncate">{take.title}</h1>
           <p className="text-[11px] text-gray-500 truncate">{project.title}</p>
         </div>
+        <ShareButton kind="take" ctx={shareCtx} path={sharePath} label="Condividi il contenuto" />
         <Menu items={menuItems} />
       </header>
 
@@ -247,6 +280,8 @@ export default function StudioTake() {
           onAddMarker={openMarkerDialog}
           onSaveTrim={saveTrim}
           onSaveOffset={saveOffset}
+          initial={initialRef.current}
+          onLoopChange={setActiveLoop}
           hint={justUploaded && isAuthor && !hasTrim
             ? 'Caricato! Se all\'inizio o alla fine ci sono parti inutili, scegli la parte utile con le maniglie A e B e premi «Salva come taglio predefinito»: gli altri la troveranno già impostata.'
             : null}
@@ -265,6 +300,9 @@ export default function StudioTake() {
             onUpdate={updateMarker}
             onDelete={deleteMarker}
             onJumpToComment={jumpToComment}
+            onShare={(m) => share({
+              kind: 'marker', ctx: { title: take.title, item: m.label, time: m.time_ms }, path: sharePath, params: { focus: `marker-${m.id}` },
+            })}
           />
         )}
 
@@ -278,6 +316,9 @@ export default function StudioTake() {
             onSeekMs={(ms) => playerRef.current?.seekAndPlay(ms)}
             onCreateMarker={createMarker}
             onChanged={reloadComments}
+            onShare={(c) => share({
+              kind: 'takeComment', ctx: { title: take.title, author: c.username }, path: sharePath, params: { focus: `comment-${c.id}` },
+            })}
           />
         )}
         {error && <p className="text-sm text-red-400">{error}</p>}
