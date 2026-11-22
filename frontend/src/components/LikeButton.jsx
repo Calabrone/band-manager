@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Heart } from 'lucide-react'
 import client from '../api/client'
+import { trackStep } from '../lib/onboarding'
 
-export default function LikeButton({ songId, compact = false }) {
+export default function LikeButton({ songId, compact = false, tour = false }) {
   const [likeData, setLikeData] = useState({ count: 0, liked: false })
   const [loading, setLoading] = useState(false)
 
@@ -21,6 +22,7 @@ export default function LikeButton({ songId, compact = false }) {
     try {
       const { data } = await client.post(`/songs/${songId}/likes`)
       setLikeData(data)
+      if (data.liked) trackStep('like')
     } catch {
       // ignore
     } finally {
@@ -30,6 +32,7 @@ export default function LikeButton({ songId, compact = false }) {
 
   return (
     <button
+      data-tour={tour ? 'like-btn' : undefined}
       onClick={handleToggle}
       disabled={loading}
       className={`flex items-center gap-1 transition-colors disabled:opacity-50

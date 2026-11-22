@@ -1,7 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { AudioLines, Music2, PlusCircle, Settings, UserCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { VERSION } from '../version'
 
 export default function BottomNav() {
   const location = useLocation()
@@ -17,13 +16,14 @@ export default function BottomNav() {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 safe-bottom z-40">
-      <div className="flex relative">
+      <div className="flex relative max-w-2xl mx-auto">
         {links.map(({ to, icon: Icon, label }) => {
           const active = to === '/studio' ? location.pathname.startsWith('/studio') : location.pathname === to
           return (
             <Link
               key={to}
               to={to}
+              data-tour={to === '/add' ? 'nav-add' : undefined}
               className={`flex-1 flex flex-col items-center py-2 gap-0.5 transition-colors ${
                 active ? 'text-brand-400' : 'text-gray-500 hover:text-gray-300'
               }`}
@@ -33,9 +33,6 @@ export default function BottomNav() {
             </Link>
           )
         })}
-        <span className="absolute right-2 bottom-1 text-[10px] text-gray-700 pointer-events-none select-none">
-          v{VERSION}
-        </span>
       </div>
     </nav>
   )

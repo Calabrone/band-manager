@@ -13,7 +13,9 @@ function tickStep(view, width) {
   return TICK_STEPS.find((s) => (s / view.spanMs) * width >= 70) ?? TICK_STEPS[TICK_STEPS.length - 1]
 }
 
-function Handle({ x, label, onPointerDown, onPointerMove, onPointerUp }) {
+function Handle({ x, width, label, onPointerDown, onPointerMove, onPointerUp }) {
+  // L'etichetta (24 px) resta interamente dentro la timeline anche con la maniglia sul bordo
+  const shift = Math.max(0, 12 - x) + Math.min(0, width - x - 12)
   return (
     <div
       onPointerDown={onPointerDown}
@@ -24,7 +26,7 @@ function Handle({ x, label, onPointerDown, onPointerMove, onPointerUp }) {
       className="absolute bottom-0 flex justify-center cursor-ew-resize touch-none"
     >
       <div className="w-0.5 h-full bg-purple-400" />
-      <div className="absolute bottom-1 w-6 h-8 rounded-md bg-purple-500 text-white text-xs font-bold flex items-center justify-center shadow">
+      <div style={{ transform: `translateX(${shift}px)` }} className="absolute bottom-1 w-6 h-8 rounded-md bg-purple-500 text-white text-xs font-bold flex items-center justify-center shadow">
         {label}
       </div>
     </div>
@@ -311,10 +313,10 @@ export default function Timeline({
       {loop && loop.b > loop.a && (
         <>
           {visible(loop.a) && (
-            <Handle x={msToX(loop.a, view, width)} label="A" onPointerDown={handleDown('a')} onPointerMove={handleMove} onPointerUp={handleUp} />
+            <Handle x={msToX(loop.a, view, width)} width={width} label="A" onPointerDown={handleDown('a')} onPointerMove={handleMove} onPointerUp={handleUp} />
           )}
           {visible(loop.b) && (
-            <Handle x={msToX(loop.b, view, width)} label="B" onPointerDown={handleDown('b')} onPointerMove={handleMove} onPointerUp={handleUp} />
+            <Handle x={msToX(loop.b, view, width)} width={width} label="B" onPointerDown={handleDown('b')} onPointerMove={handleMove} onPointerUp={handleUp} />
           )}
         </>
       )}

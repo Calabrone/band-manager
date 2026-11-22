@@ -16,3 +16,19 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
+
+@keyframes swipe-hint {
+  0%, 100% { transform: translateX(40px); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  50% { transform: translateX(-40px); }
+}
+
+@layer utilities {
+  .animate-swipe-hint {
+    animation: swipe-hint 1.8s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-swipe-hint { animation: none; opacity: 1; }
+  }
+}

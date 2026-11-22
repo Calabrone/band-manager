@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Music2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { readCachedBandName } from '../context/ConfigContext'
 
 export default function Login() {
   const { login } = useAuth()
@@ -32,7 +33,7 @@ export default function Login() {
           <div className="w-16 h-16 rounded-2xl bg-brand-600 flex items-center justify-center mb-4">
             <Music2 className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Band Manager</h1>
+          <h1 className="text-2xl font-bold text-white text-center break-words max-w-full">{readCachedBandName() || 'Band Manager'}</h1>
           <p className="text-gray-400 text-sm mt-1">Accedi per continuare</p>
         </div>
 

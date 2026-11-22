@@ -3,6 +3,7 @@ import { Check, CornerDownRight, MessageCircle, Pencil, Send, Trash2, X } from '
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import ConfirmDialog from './ConfirmDialog'
+import { trackStep } from '../lib/onboarding'
 
 function CommentItem({
   comment, currentUser, isAdmin,
@@ -92,7 +93,7 @@ function CommentItem({
 }
 
 // basePath: dove stanno i commenti (default: quelli del brano `songId`; per un brano di prova `/studio/projects/<pid>`)
-export default function CommentSection({ songId, basePath = `/songs/${songId}` }) {
+export default function CommentSection({ songId, basePath = `/songs/${songId}`, onCount }) {
   const { user, isAdmin } = useAuth()
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(true)
@@ -119,6 +120,10 @@ export default function CommentSection({ songId, basePath = `/songs/${songId}` }
     return top.map(p => ({ ...p, replies: comments.filter(c => c.parent_id === p.id) }))
   }, [comments])
 
+  useEffect(() => {
+    if (!loading) onCount?.(comments.length)
+  }, [comments.length, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function handleSubmitTop(e) {
     e.preventDefault()
     const content = newText.trim()
@@ -127,6 +132,7 @@ export default function CommentSection({ songId, basePath = `/songs/${songId}` }
     try {
       const { data } = await client.post(`${basePath}/comments`, { content })
       setComments(prev => [...prev, data])
+      if (basePath.startsWith('/studio')) trackStep('comment')
       setNewText('')
     } catch {
       // ignore

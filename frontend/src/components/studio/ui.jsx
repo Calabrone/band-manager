@@ -69,11 +69,11 @@ export function formatDuration(ms) {
 }
 
 export const STATUS = {
-  idea: { label: 'Idea', cls: 'bg-sky-900/40 text-sky-300' },
-  lavorazione: { label: 'In lavorazione', cls: 'bg-amber-900/40 text-amber-300' },
-  pronto: { label: 'Pronto', cls: 'bg-green-900/40 text-green-300' },
-  promosso: { label: 'Promosso', cls: 'bg-purple-900/40 text-purple-300' },
-  archiviato: { label: 'Archiviato', cls: 'bg-gray-800 text-gray-400' },
+  idea: { label: 'Idea', short: 'Idea', cls: 'bg-sky-900/40 text-sky-300' },
+  lavorazione: { label: 'In lavorazione', short: 'In lavoro', cls: 'bg-amber-900/40 text-amber-300' },
+  pronto: { label: 'Pronto', short: 'Pronto', cls: 'bg-green-900/40 text-green-300' },
+  promosso: { label: 'Promosso', short: 'Promosso', cls: 'bg-purple-900/40 text-purple-300' },
+  archiviato: { label: 'Archiviato', short: 'Archiviato', cls: 'bg-gray-800 text-gray-400' },
 }
 
 /** Stati che il creatore (o l'admin) imposta a mano: "Promosso" si ottiene solo con la promozione. */

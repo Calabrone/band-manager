@@ -1,5 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { ConfigProvider } from './context/ConfigContext'
+import { OnboardingProvider } from './context/OnboardingContext'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import ForgotPassword from './pages/ForgotPassword'
@@ -57,7 +59,11 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppRoutes />
+      <ConfigProvider>
+        <OnboardingProvider>
+          <AppRoutes />
+        </OnboardingProvider>
+      </ConfigProvider>
     </AuthProvider>
   )
 }

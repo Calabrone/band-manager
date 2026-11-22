@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CheckCircle, Loader2, XCircle } from 'lucide-react'
 import client from '../api/client'
+import { trackStep } from '../lib/onboarding'
 
 const CATEGORIES = [
   { value: 'proposta', label: 'Proposta' },
@@ -58,6 +59,7 @@ export default function AddEditSong() {
   // Il record nasce solo qui, dopo una validazione riuscita
   function startEnrichment(created) {
     setCreatedSongId(created.id)
+    trackStep('propose')
 
     // L'arricchimento gira in una richiesta dedicata (niente task in background su PHP):
     // non la attendiamo, il polling sotto rileva l'esito
@@ -150,6 +152,7 @@ export default function AddEditSong() {
     setSubmitting(true)
     try {
       const { data } = await client.post('/songs', { artist, title, category, force: true, message: validationMsg })
+      trackStep('propose')
       navigate(`/songs/${data.id}`)
     } catch (err) {
       setError(err.response?.data?.detail || 'Errore durante il salvataggio')

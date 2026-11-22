@@ -65,7 +65,7 @@ docker compose -f deploy/local/docker-compose.yml down           # stop (il DB r
 pip install pytest httpx
 cd tests/api && API_BASE_URL=https://www.motorn.it/band-test/api ADMIN_PASSWORD=... pytest -q    # ADMIN_USER se diverso da admin
 # Frontend: formato accordi (nessuna dipendenza, Node >= 20)
-node --test tests/frontend/chordpro.test.mjs tests/frontend/studio.test.mjs tests/frontend/engines.test.mjs tests/frontend/metronome.test.mjs
+node --test tests/frontend/chordpro.test.mjs tests/frontend/studio.test.mjs tests/frontend/engines.test.mjs tests/frontend/metronome.test.mjs tests/frontend/swipe.test.mjs tests/frontend/studioGroups.test.mjs tests/frontend/onboarding.test.mjs
 # End-to-end della Sala prove (Chrome headless, microfono/fotocamera finti; Node >= 22) su un sito locale o di prova, mai sulla produzione
 ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/studio.e2e.mjs
 # Frontend: controlla base path in index.html, manifest, service worker
@@ -234,6 +234,10 @@ Spec: `.kiro/specs/rehearsal-studio/`. Test: `tests/api/test_studio.py`, `node -
 
 Schema v4 (`PRAGMA user_version=4`): `song.lyrics_source` (`NULL` = automatico da lyrics.ovh, `manual` = scritto a mano o da OCR). Gli accordi manuali stanno **dentro `song.lyrics`** in formato ChordPro in linea (`[Am]Quando sei [G]qui`, sezioni su riga propria `[Ritornello]`), sempre in notazione anglosassone; si vedono a prescindere da `chords_enabled`, che governa solo `chords_text` (AI) e la tablatura. `Enrich::run` non tocca un testo `manual` e non cancella un testo esistente se lyrics.ovh non risponde. OCR: `Groq::ocrLyrics` con modello di visione `Groq::VISION_MODEL` (`qwen/qwen3.8-27b`), sostituibile da Admin con l'impostazione `groq_vision_model`; l'immagine non viene conservata, rate limit `ocr`. `GET /config` espone `ocr_available`. Frontend: `lib/chordpro.js` (unica fonte del formato: parse, `setChord`, conversione dall'italiano, `fromChordSheet` per accordi scritti sulla riga sopra), `components/LyricsView.jsx` (accordi sopra le parole), `components/Teleprompter.jsx` (tutto schermo, velocità in righe/min per brano e caratteri in `localStorage`), `components/ChordPicker.jsx`, `pages/LyricsEdit.jsx` (route `/songs/:id/lyrics`). Spec: `.kiro/specs/lyrics-teleprompter/`. Test: `tests/api/test_lyrics.py`, `node --test tests/frontend/chordpro.test.mjs`.
 
+#### UX mobile, swipe, guida e nome del gruppo (solo frontend; spec `.kiro/specs/mobile-ux/`)
+
+Pensata per schermi da 360 px (nessuno scorrimento orizzontale: lo verifica l'e2e). **Componenti** in `components/ui/`: `Tabs` (schede con conteggio e indicatore che segue il dito), `Segmented`, `Collapsible` (stato in `localStorage`, riepilogo a pannello chiuso), `Menu` (⋮: bottom sheet sotto 640 px), `ActionBar` (barra fissa in basso con safe area), `Fab`, `AppHeader`, `SwipeTabs`; `components/studio/StatusStepper`. **Layout:** Prove = 3 segmenti (In corso/Promossi/Archivio) con una sola chiamata `GET /studio/projects?status=<tutti>` e sezioni per stato (`lib/studioGroups.js`); brano di prova a schede Contenuti/Testo/Video/Commenti (scheda ricordata in `sessionStorage`, conteggi da `onCount` di `VideoSection`/`CommentSection`); player a livelli (loop A‑B in una riga + «Marker qui», pannelli «Regola loop» e «Ascolto»); registrazione con `ActionBar` (Registra/Ferma sempre visibili) e pannelli Tempo/Info richiudibili; `StudioTake` e `StudioRecord` senza `BottomNav`; la versione sta in Profilo e nella guida. **Swipe:** `SwipeTabs` + `lib/swipe.js` (logica pura testata: dito a sinistra = sezione successiva, asse bloccato dopo 10 px, soglia 60 px o gesto rapido, zona morta di 20 px ai bordi, nessun giro circolare; ignora input/canvas/`[data-no-swipe]`/aree con scorrimento orizzontale); l'indicatore si muove con la variabile CSS `--swipe-progress` su `<html>` (niente re-render). Usato in Repertorio, Prove e brano di prova. **Nome del gruppo:** `context/ConfigContext.jsx` legge `GET /config` dopo il login (`bandName`, `refreshConfig`; Admin lo richiama dopo aver salvato `band_name`), `AppHeader` lo mostra sopra il titolo e imposta `document.title`; l'ultimo nome noto sta in `localStorage` `band_name_cache` e serve alla pagina di login (il server non lo espone senza accesso). **Guida «Primi passi»:** `lib/onboarding.js` (12 passi in due gruppi Repertorio/Sala prove, stato puro: `markDone`, `progress`, `resolveTarget`, `load`/`serialize`), `context/OnboardingContext.jsx` (stato per utente in `localStorage` `band_onboarding_<id>`, ultimo sid/pid/tid in `band_onboarding_ctx_<id>`, nessun dato sul server), `components/onboarding/` (`WelcomeCard`, `GuidePanel`, `HelpButton` con pallino, `Spotlight` che evidenzia `[data-tour="…"]`). I passi si spuntano da soli con `trackStep(id)` (evento `band:onboarding`) lanciato dopo l'azione riuscita; saltare o completare toglie il pallino, «Ricomincia» azzera. Test: `tests/frontend/{swipe,studioGroups,onboarding}.test.mjs`; l'e2e emula 360×780 con touch (swipe, guida, nome del gruppo, nessuno scorrimento orizzontale).
+
 #### API key storage
 
 `groq_api_key` and `genius_api_key` are **not** in `.env` — they live in `AppSetting` and are set via the Admin UI. Read at runtime with `get_setting(session, key)`. `.env` holds only `SECRET_KEY`.
@@ -259,7 +263,7 @@ Frontend polls `GET /api/songs/{id}` every 2 s until `validated = True`.
 
 | Path | Component | Access |
 |---|---|---|
-| `/` | `Songs.jsx` | all |
+| `/` | `Songs.jsx` (schede con swipe) | all |
 | `/songs/:id` | `SongDetail.jsx` | all |
 | `/add` | `AddEditSong.jsx` | all |
 | `/songs/:id/edit` | `AddEditSong.jsx` | all |

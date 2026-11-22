@@ -5,6 +5,8 @@ import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LikeButton from '../components/LikeButton'
+import { useOnboarding } from '../context/OnboardingContext'
+import { trackStep } from '../lib/onboarding'
 import CommentSection from '../components/CommentSection'
 import SongMedia from '../components/SongMedia'
 import LyricsView from '../components/LyricsView'
@@ -32,6 +34,11 @@ export default function SongDetail() {
   const [enriching, setEnriching] = useState(false)
   const [chordsEnabled, setChordsEnabled] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
+  const { setCtx } = useOnboarding()
+
+  useEffect(() => {
+    setCtx({ lastSongId: Number(id) })
+  }, [id, setCtx])
   const [pickingCover, setPickingCover] = useState(false)
   const [moving, setMoving] = useState(null) // null | { message, busy, error }
 
@@ -186,7 +193,7 @@ export default function SongDetail() {
           <p className="text-xs text-gray-400">
             Modificato da <span className="text-gray-200">{song.last_modified_by_username}</span>
           </p>
-          <LikeButton songId={id} />
+          <LikeButton songId={id} tour />
           {!song.validated && !song.validation_error && (
             <span className="flex items-center gap-1 text-xs text-yellow-400">
               <RefreshCw className="w-3 h-3 animate-spin" /> Validazione in corso...
@@ -282,7 +289,8 @@ export default function SongDetail() {
                 Modifica testo
               </button>
               <button
-                onClick={() => setFullscreen(true)}
+                data-tour="fullscreen-btn"
+                onClick={() => { setFullscreen(true); trackStep('prompter') }}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold"
               >
                 <Maximize2 className="w-4 h-4" />

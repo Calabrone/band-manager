@@ -1,11 +1,14 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import {
   AlertTriangle, Download, Flag, Loader2, Minus, Pause, Play, Plus, Repeat, Save, Scissors, Settings2, SkipBack,
-  Timer, Volume2, VolumeX, ZoomIn, ZoomOut,
+  SlidersHorizontal, Timer, Volume2, VolumeX, ZoomIn, ZoomOut,
 } from 'lucide-react'
 import Timeline from './Timeline'
 import usePlayback from './usePlayback'
 import { btnSecondary } from './ui'
+import Collapsible from '../ui/Collapsible'
+import { summarizeListening } from '../../lib/uiSummary'
+import { trackStep } from '../../lib/onboarding'
 import { getAudioContext } from '../../lib/engines'
 import { DEFAULT_BPM, scheduleCountIn } from '../../lib/countin'
 import {
@@ -93,6 +96,11 @@ const LoopPlayer = forwardRef(function LoopPlayer(
     lastDuration.current = duration
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duration])
+
+  // Guida: il passo "loop" si spunta quando l'utente attiva un loop che non copre tutto il brano
+  useEffect(() => {
+    if (touched.current && loop.active && loop.b > loop.a && duration && (loop.a > 0 || loop.b < duration - 50)) trackStep('loop')
+  }, [loop, duration])
 
   // Il motore riceve il loop (senza loop nativo in modalità "conteggio a ogni giro": lo gestisce il ciclo sotto)
   useEffect(() => {
@@ -389,109 +397,127 @@ const LoopPlayer = forwardRef(function LoopPlayer(
       {counting && <p className="text-center text-xs text-purple-300">Conteggio…</p>}
       {playError && <p className="text-center text-xs text-amber-400">{playError}</p>}
 
-      {/* Punti A e B */}
-      <div className="grid grid-cols-2 gap-2">
-        {['a', 'b'].map((which) => (
-          <div key={which} className="p-2 rounded-xl bg-gray-900 border border-gray-800 space-y-1.5">
-            <div className="flex items-center justify-between">
+      {/* Loop A-B in una riga + Marker */}
+      <div data-tour="loop-row" className="p-2 rounded-xl bg-gray-900 border border-gray-800 space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          {['a', 'b'].map((which) => (
+            <div key={which} className="flex items-center justify-between gap-1.5">
               <span className="text-xs font-bold text-purple-300">{which.toUpperCase()}</span>
               <span className="text-xs font-mono text-gray-300">{formatTime(loop[which])}</span>
+              <Btn onClick={() => setPoint(which)} disabled={!ready} className="min-h-[40px]">{which.toUpperCase()} qui</Btn>
             </div>
-            <div className="flex gap-1">
-              <Btn onClick={() => setPoint(which)} disabled={!ready} className="flex-1">{which.toUpperCase()} qui</Btn>
-              <Btn onClick={() => nudge(which, -NUDGE_MS)} disabled={!ready} title="−0,1 s"><Minus className="w-3 h-3" />0,1</Btn>
-              <Btn onClick={() => nudge(which, NUDGE_MS)} disabled={!ready} title="+0,1 s"><Plus className="w-3 h-3" />0,1</Btn>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Btn onClick={showAll} disabled={!ready}>Tutto</Btn>
-        {hasTrim && <Btn onClick={useAuthorTrim} disabled={!ready}><Scissors className="w-3 h-3" /> Taglio dell'autore</Btn>}
-        <Btn onClick={() => onAddMarker?.(api.getPosition())} disabled={!ready}><Flag className="w-3 h-3" /> Marker qui</Btn>
-        {isAuthor && (
-          <>
-            <Btn onClick={() => saveTrim(false)} disabled={!ready || loop.b <= loop.a}><Save className="w-3 h-3" /> Salva come taglio predefinito</Btn>
-            {hasTrim && <Btn onClick={() => saveTrim(true)}>Rimuovi taglio</Btn>}
-          </>
-        )}
+          ))}
+        </div>
+        <Btn data-tour="marker-btn" onClick={() => onAddMarker?.(api.getPosition())} disabled={!ready} className="w-full min-h-[44px] !text-sm">
+          <Flag className="w-4 h-4" /> Marker qui
+        </Btn>
       </div>
       {message && <p className="text-xs text-purple-300">{message}</p>}
 
-      {/* Conteggio */}
-      <div className="p-2 rounded-xl bg-gray-900 border border-gray-800 space-y-2">
-        <div className="flex items-center justify-between">
-          <Btn active={countIn.enabled} onClick={() => setCountIn((c) => ({ ...c, enabled: !c.enabled }))}>
-            <Timer className="w-3 h-3" /> Conteggio {countIn.enabled ? 'attivo' : 'spento'}
-          </Btn>
-          {countIn.enabled && (
-            <Btn onClick={() => setShowCount((s) => !s)} title="Impostazioni del conteggio"><Settings2 className="w-3 h-3" /></Btn>
+      <Collapsible title="Regola loop" icon={SlidersHorizontal} storageKey="studio_ui_loop_open">
+        <div className="grid grid-cols-2 gap-2">
+          {['a', 'b'].map((which) => (
+            <div key={which} className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-purple-300 w-3">{which.toUpperCase()}</span>
+              <Btn onClick={() => nudge(which, -NUDGE_MS)} disabled={!ready} title="−0,1 s" className="flex-1 min-h-[40px]"><Minus className="w-3 h-3" />0,1</Btn>
+              <Btn onClick={() => nudge(which, NUDGE_MS)} disabled={!ready} title="+0,1 s" className="flex-1 min-h-[40px]"><Plus className="w-3 h-3" />0,1</Btn>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Btn onClick={showAll} disabled={!ready} className="min-h-[40px]">Tutto</Btn>
+          {hasTrim && <Btn onClick={useAuthorTrim} disabled={!ready} className="min-h-[40px]"><Scissors className="w-3 h-3" /> Taglio dell'autore</Btn>}
+          {isAuthor && (
+            <>
+              <Btn onClick={() => saveTrim(false)} disabled={!ready || loop.b <= loop.a} className="min-h-[40px]"><Save className="w-3 h-3" /> Salva come taglio predefinito</Btn>
+              {hasTrim && <Btn onClick={() => saveTrim(true)} className="min-h-[40px]">Rimuovi taglio</Btn>}
+            </>
           )}
         </div>
-        {countIn.enabled && showCount && (
-          <div className="grid grid-cols-3 gap-2 text-xs text-gray-400">
-            <label>Tempi
-              <select value={countIn.beatsPerBar} onChange={(e) => setCountIn((c) => ({ ...c, beatsPerBar: Number(e.target.value) }))}
-                      className="w-full mt-1 px-2 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-white">
-                {[2, 3, 4, 6].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </label>
-            <label>Battute
-              <select value={countIn.bars} onChange={(e) => setCountIn((c) => ({ ...c, bars: Number(e.target.value) }))}
-                      className="w-full mt-1 px-2 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-white">
-                {[1, 2].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </label>
-            <label>BPM
-              <input type="number" min={40} max={300} value={bpm} onChange={(e) => setBpm(Math.max(40, Math.min(300, Number(e.target.value) || DEFAULT_BPM)))}
-                     className="w-full mt-1 px-2 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-white" />
-            </label>
-            <label className="col-span-3 flex items-center gap-2">
-              <input type="checkbox" checked={countIn.everyLap} onChange={(e) => setCountIn((c) => ({ ...c, everyLap: e.target.checked }))} />
-              Ripeti il conteggio a ogni giro del loop
-            </label>
-          </div>
-        )}
-      </div>
+      </Collapsible>
 
-      {/* Volume e, per le sovraincisioni, base e mixer */}
-      <div className="p-2 rounded-xl bg-gray-900 border border-gray-800 space-y-2">
-        <div className="flex items-center gap-2">
-          {volume === 0 ? <VolumeX className="w-4 h-4 text-gray-500" /> : <Volume2 className="w-4 h-4 text-gray-400" />}
-          <input type="range" min={0} max={1} step={0.05} value={volume} onChange={(e) => changeVolume(Number(e.target.value))}
-                 className="flex-1 accent-purple-500" />
-          <span className="text-xs text-gray-400 w-24 text-right">{pb.hasBase ? 'Questo contenuto' : 'Volume'}</span>
+      <Collapsible
+        title="Ascolto"
+        icon={Volume2}
+        storageKey="studio_ui_listen_open"
+        summary={summarizeListening({
+          volume, countIn: countIn.enabled, baseVolume: pb.hasBase ? baseVolume : null, offsetMs: pb.hasBase ? offset : 0,
+        })}
+      >
+        {/* Conteggio */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Btn active={countIn.enabled} onClick={() => setCountIn((c) => ({ ...c, enabled: !c.enabled }))} className="min-h-[40px]">
+              <Timer className="w-3 h-3" /> Conteggio {countIn.enabled ? 'attivo' : 'spento'}
+            </Btn>
+            {countIn.enabled && (
+              <Btn onClick={() => setShowCount((s) => !s)} title="Impostazioni del conteggio" className="min-h-[40px]"><Settings2 className="w-3 h-3" /></Btn>
+            )}
+          </div>
+          {countIn.enabled && showCount && (
+            <div className="grid grid-cols-3 gap-2 text-xs text-gray-400">
+              <label>Tempi
+                <select value={countIn.beatsPerBar} onChange={(e) => setCountIn((c) => ({ ...c, beatsPerBar: Number(e.target.value) }))}
+                        className="w-full mt-1 px-2 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-white">
+                  {[2, 3, 4, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <label>Battute
+                <select value={countIn.bars} onChange={(e) => setCountIn((c) => ({ ...c, bars: Number(e.target.value) }))}
+                        className="w-full mt-1 px-2 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-white">
+                  {[1, 2].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <label>BPM
+                <input type="number" min={40} max={300} value={bpm} onChange={(e) => setBpm(Math.max(40, Math.min(300, Number(e.target.value) || DEFAULT_BPM)))}
+                       className="w-full mt-1 px-2 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-white" />
+              </label>
+              <label className="col-span-3 flex items-center gap-2">
+                <input type="checkbox" checked={countIn.everyLap} onChange={(e) => setCountIn((c) => ({ ...c, everyLap: e.target.checked }))} />
+                Ripeti il conteggio a ogni giro del loop
+              </label>
+            </div>
+          )}
         </div>
-        {pb.hasBase && (
-          <>
-            <div className="flex items-center gap-2">
-              {baseVolume === 0 ? <VolumeX className="w-4 h-4 text-gray-500" /> : <Volume2 className="w-4 h-4 text-gray-400" />}
-              <input type="range" min={0} max={1} step={0.05} value={baseVolume} onChange={(e) => changeBaseVolume(Number(e.target.value))}
-                     className="flex-1 accent-purple-500" />
-              <span className="text-xs text-gray-400 w-24 text-right">Base: «{take.base.title}»</span>
-            </div>
-            <div className="space-y-1.5 pt-1 border-t border-gray-800">
-              <Slider label="Allineamento" value={offset} min={-offsetRange} max={offsetRange} step={5} suffix=" ms" onChange={changeOffset} />
-              <div className="flex gap-1 justify-end">
-                {[-20, -5, 5, 20].map((d) => (
-                  <Btn key={d} onClick={() => changeOffset(offset + d)}>{d > 0 ? `+${d}` : d}</Btn>
-                ))}
-                <Btn onClick={() => changeOffset(take.offset_ms || 0)} disabled={!offsetDirty}>Ripristina</Btn>
+
+        {/* Volume e, per le sovraincisioni, base e mixer */}
+        <div className="space-y-2 pt-2 border-t border-gray-800">
+          <div className="flex items-center gap-2">
+            {volume === 0 ? <VolumeX className="w-4 h-4 text-gray-500" /> : <Volume2 className="w-4 h-4 text-gray-400" />}
+            <input type="range" min={0} max={1} step={0.05} value={volume} onChange={(e) => changeVolume(Number(e.target.value))}
+                   className="flex-1 accent-purple-500" />
+            <span className="text-xs text-gray-400 w-24 text-right">{pb.hasBase ? 'Questo contenuto' : 'Volume'}</span>
+          </div>
+          {pb.hasBase && (
+            <>
+              <div className="flex items-center gap-2">
+                {baseVolume === 0 ? <VolumeX className="w-4 h-4 text-gray-500" /> : <Volume2 className="w-4 h-4 text-gray-400" />}
+                <input type="range" min={0} max={1} step={0.05} value={baseVolume} onChange={(e) => changeBaseVolume(Number(e.target.value))}
+                       className="flex-1 accent-purple-500" />
+                <span className="text-xs text-gray-400 w-24 text-right truncate">Base: «{take.base.title}»</span>
               </div>
-              <p className="text-[11px] text-gray-500">
-                Se la registrazione suona in ritardo rispetto alla base aumenta il valore, se anticipa diminuiscilo (limite ±{MAX_OFFSET_MS} ms).
-              </p>
-              {isAuthor && onSaveOffset && (
-                <button type="button" onClick={saveOffset} disabled={!offsetDirty} className={btnSecondary}>
-                  <Save className="w-4 h-4" /> Salva allineamento
-                </button>
-              )}
-              {!isAuthor && <p className="text-[11px] text-gray-500">La regolazione vale solo per te: non modifica il contenuto.</p>}
-            </div>
-          </>
-        )}
-      </div>
+              <div className="space-y-1.5 pt-1 border-t border-gray-800">
+                <Slider label="Allineamento" value={offset} min={-offsetRange} max={offsetRange} step={5} suffix=" ms" onChange={changeOffset} />
+                <div className="flex gap-1 justify-end">
+                  {[-20, -5, 5, 20].map((d) => (
+                    <Btn key={d} onClick={() => changeOffset(offset + d)} className="min-h-[40px]">{d > 0 ? `+${d}` : d}</Btn>
+                  ))}
+                  <Btn onClick={() => changeOffset(take.offset_ms || 0)} disabled={!offsetDirty} className="min-h-[40px]">Ripristina</Btn>
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Se la registrazione suona in ritardo rispetto alla base aumenta il valore, se anticipa diminuiscilo (limite ±{MAX_OFFSET_MS} ms).
+                </p>
+                {isAuthor && onSaveOffset && (
+                  <button type="button" onClick={saveOffset} disabled={!offsetDirty} className={btnSecondary}>
+                    <Save className="w-4 h-4" /> Salva allineamento
+                  </button>
+                )}
+                {!isAuthor && <p className="text-[11px] text-gray-500">La regolazione vale solo per te: non modifica il contenuto.</p>}
+              </div>
+            </>
+          )}
+        </div>
+      </Collapsible>
 
       <p className="text-[11px] text-gray-600 hidden md:block">
         Tastiera: spazio play/pausa · A / B imposta i punti · L loop · M marker · ←/→ ±1 s · +/− zoom

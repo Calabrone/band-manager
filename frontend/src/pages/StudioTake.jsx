@@ -3,7 +3,10 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Circle, Download, Pencil, Trash2 } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import BottomNav from '../components/BottomNav'
+import Menu from '../components/ui/Menu'
+import Tabs from '../components/ui/Tabs'
+import { useOnboarding } from '../context/OnboardingContext'
+import { trackStep } from '../lib/onboarding'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoopPlayer from '../components/studio/LoopPlayer'
 import MarkerList from '../components/studio/MarkerList'
@@ -97,6 +100,8 @@ export default function StudioTake() {
   const [markerAt, setMarkerAt] = useState(null)
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [tab, setTab] = useState('marker')
+  const { setCtx } = useOnboarding()
 
   const reloadMarkers = useCallback(async () => {
     const { data } = await client.get(`/studio/takes/${tid}/markers`)
@@ -120,13 +125,14 @@ export default function StudioTake() {
       setProject(p.data)
       setMarkers(m.data)
       setComments(c.data)
+      setCtx({ lastProjectId: p.data.id, lastTakeId: t.data.id })
     }).catch((err) => {
       if (cancelled) return
       if (err?.response?.status === 404) setNotFound(true)
       else setError(errorText(err, 'Impossibile caricare il contenuto'))
     })
     return () => { cancelled = true }
-  }, [pid, tid])
+  }, [pid, tid, setCtx])
 
   if (notFound) {
     return (
@@ -151,6 +157,7 @@ export default function StudioTake() {
   async function createMarker(ms, label) {
     const { data } = await client.post(`/studio/takes/${tid}/markers`, { time_ms: Math.max(0, Math.round(ms)), label })
     await reloadMarkers()
+    trackStep('marker')
     return data
   }
 
@@ -185,46 +192,49 @@ export default function StudioTake() {
   }
 
   function jumpToComment(id) {
-    document.getElementById(`c-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // il commento puo' non essere montato: si passa prima alla scheda Commenti
+    setTab('commenti')
+    setTimeout(() => document.getElementById(`c-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60)
   }
 
+  const menuItems = [
+    { icon: Download, label: 'Scarica il file', onClick: () => { window.location.href = `${take.file_url}&dl=1` } },
+    { icon: Pencil, label: 'Modifica', onClick: () => setEditing(true), hidden: !isAuthor },
+    { icon: Trash2, label: 'Elimina', onClick: () => setConfirmDelete(true), danger: true, hidden: !isAuthor },
+  ]
+  const tabs = [
+    { key: 'marker', label: 'Marker', count: markers.length },
+    { key: 'commenti', label: 'Commenti', count: comments.length },
+  ]
+
   return (
-    <div className="min-h-screen pb-24">
-      <header className="flex items-center gap-3 px-4 py-3 bg-gray-950 border-b border-gray-800 sticky top-0 z-10">
-        <button onClick={() => navigate(`/studio/${pid}`)} className="p-1 text-gray-400 hover:text-gray-200">
+    <div className="min-h-screen pb-8">
+      <header className="flex items-center gap-2 px-4 py-3 bg-gray-950 border-b border-gray-800 sticky top-0 z-20">
+        <button onClick={() => navigate(`/studio/${pid}`)} className="p-1 -ml-1 text-gray-400 hover:text-gray-200" aria-label="Indietro">
           <ArrowLeft className="w-6 h-6" />
         </button>
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-semibold text-white truncate">{take.title}</h1>
           <p className="text-[11px] text-gray-500 truncate">{project.title}</p>
         </div>
-        {isAuthor && (
-          <>
-            <button onClick={() => setEditing(true)} className="p-2 text-gray-400 hover:text-gray-200" title="Modifica">
-              <Pencil className="w-5 h-5" />
-            </button>
-            <button onClick={() => setConfirmDelete(true)} className="p-2 text-gray-400 hover:text-red-400" title="Elimina">
-              <Trash2 className="w-5 h-5" />
-            </button>
-          </>
-        )}
+        <Menu items={menuItems} />
       </header>
 
-      <div className="p-4 space-y-5 max-w-2xl mx-auto">
-        <div className="space-y-1">
+      <div className="p-4 space-y-4 max-w-2xl mx-auto">
+        <div className="space-y-2">
           <p className="text-xs text-gray-500">
             {take.username} · {formatDateTime(take.created_at)} · {formatSize(take.size)}
             {take.recorded_in_app && ' · registrato nell\'app'}
           </p>
           {take.description && <p className="text-sm text-gray-300 whitespace-pre-wrap">{take.description}</p>}
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <a href={`${take.file_url}&dl=1`} className="inline-flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300">
-              <Download className="w-3 h-3" /> Scarica il file
-            </a>
-            <button type="button" onClick={() => navigate(`/studio/${pid}/record?over=${tid}`)} className={`${btnSecondary} !py-1.5 !px-3 !text-xs`}>
-              <Circle className="w-3 h-3 text-red-400 fill-current" /> Registra sopra
-            </button>
-          </div>
+          <button
+            type="button"
+            data-tour="overdub-btn"
+            onClick={() => navigate(`/studio/${pid}/record?over=${tid}`)}
+            className={`${btnSecondary} !py-2 !px-3 !text-xs`}
+          >
+            <Circle className="w-3 h-3 text-red-400 fill-current" /> Registra sopra
+          </button>
         </div>
 
         <LoopPlayer
@@ -242,26 +252,34 @@ export default function StudioTake() {
             : null}
         />
 
-        <MarkerList
-          markers={markers}
-          comments={comments}
-          userId={user?.id}
-          onSeek={(m) => playerRef.current?.seekAndPlay(m.time_ms)}
-          onUpdate={updateMarker}
-          onDelete={deleteMarker}
-          onJumpToComment={jumpToComment}
-        />
+        <div className="-mx-4">
+          <Tabs items={tabs} value={tab} onChange={setTab} stickyClass="top-[57px]" ariaLabel="Marker e commenti" />
+        </div>
 
-        <StudioComments
-          takeId={tid}
-          comments={comments}
-          markers={markers}
-          userId={user?.id}
-          getPosition={() => playerRef.current?.getPosition() ?? 0}
-          onSeekMs={(ms) => playerRef.current?.seekAndPlay(ms)}
-          onCreateMarker={createMarker}
-          onChanged={reloadComments}
-        />
+        {tab === 'marker' && (
+          <MarkerList
+            markers={markers}
+            comments={comments}
+            userId={user?.id}
+            onSeek={(m) => playerRef.current?.seekAndPlay(m.time_ms)}
+            onUpdate={updateMarker}
+            onDelete={deleteMarker}
+            onJumpToComment={jumpToComment}
+          />
+        )}
+
+        {tab === 'commenti' && (
+          <StudioComments
+            takeId={tid}
+            comments={comments}
+            markers={markers}
+            userId={user?.id}
+            getPosition={() => playerRef.current?.getPosition() ?? 0}
+            onSeekMs={(ms) => playerRef.current?.seekAndPlay(ms)}
+            onCreateMarker={createMarker}
+            onChanged={reloadComments}
+          />
+        )}
         {error && <p className="text-sm text-red-400">{error}</p>}
       </div>
 
@@ -286,7 +304,6 @@ export default function StudioTake() {
           onCancel={() => setConfirmDelete(false)}
         />
       )}
-      <BottomNav />
     </div>
   )
 }

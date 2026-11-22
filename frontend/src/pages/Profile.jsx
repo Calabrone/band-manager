@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, LogOut } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import AppHeader from '../components/ui/AppHeader'
+import HelpButton from '../components/onboarding/HelpButton'
+import { VERSION } from '../version'
 
 const INPUT =
   'w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 text-base'
@@ -115,14 +118,7 @@ export default function Profile() {
 
   return (
     <div className="min-h-screen pb-24">
-      <header className="flex items-center gap-3 px-4 py-3 bg-gray-950 border-b border-gray-800 sticky top-0 z-10">
-        {!forced && (
-          <button onClick={() => navigate(-1)} className="p-1 text-gray-400 hover:text-gray-200">
-            <ArrowLeft className="w-6 h-6" />
-          </button>
-        )}
-        <h1 className="text-base font-semibold text-white">Profilo</h1>
-      </header>
+      <AppHeader title="Profilo" sticky onBack={forced ? undefined : () => navigate(-1)} actions={forced ? undefined : <HelpButton />} />
 
       <div className="p-4 space-y-6">
         {forced && (
@@ -191,6 +187,8 @@ export default function Profile() {
           <LogOut className="w-4 h-4" />
           Esci
         </button>
+
+        <p className="text-center text-xs text-gray-600">Versione {VERSION}</p>
       </div>
     </div>
   )

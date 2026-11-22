@@ -15,7 +15,7 @@ const CATEGORY_COLORS = {
   in_scaletta: 'bg-green-900/40 text-green-300',
 }
 
-export default function SongCard({ song, onDelete, onCategoryChange }) {
+export default function SongCard({ song, onDelete, onCategoryChange, tourMenu = false }) {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -83,8 +83,10 @@ export default function SongCard({ song, onDelete, onCategoryChange }) {
       </div>
 
       {/* Menu */}
-      <div data-menu className="relative flex-shrink-0">
+      <div data-menu data-no-swipe className="relative flex-shrink-0">
         <button
+          data-tour={tourMenu ? 'song-menu' : undefined}
+          aria-label="Azioni sul brano"
           onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
           className="p-2 rounded-lg hover:bg-gray-700 text-gray-400"
         >

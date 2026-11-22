@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { trackStep } from '../../lib/onboarding'
 import { Clock, Flag, MessageSquare, Pencil, Send, Trash2 } from 'lucide-react'
 import client from '../../api/client'
 import { formatClock } from '../../lib/loop'
@@ -77,6 +78,7 @@ export default function StudioComments({ takeId, comments, markers, userId, getP
     setError('')
     try {
       await client.post(`/studio/takes/${takeId}/comments`, { content: text })
+      trackStep('comment')
       setText('')
       setPicker(false)
       await onChanged()
@@ -146,7 +148,7 @@ export default function StudioComments({ takeId, comments, markers, userId, getP
       </ul>
 
       <form onSubmit={send} className="space-y-2">
-        <textarea ref={areaRef} value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} rows={3}
+        <textarea ref={areaRef} data-tour="comment-box" value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} rows={3}
                   placeholder="Scrivi un commento…" className={inputCls} />
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => setPicker((p) => !p)}

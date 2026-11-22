@@ -235,19 +235,24 @@ function VideoItem({ video, mine, onEdit, onDelete }) {
 }
 
 // basePath: dove stanno i link video (default: quelli del brano `songId`; per un brano di prova `/studio/projects/<pid>`)
-export function VideoSection({ songId, basePath = `/songs/${songId}` }) {
+export function VideoSection({ songId, basePath = `/songs/${songId}`, onCount }) {
   const { user } = useAuth()
   const [videos, setVideos] = useState([])
+  const [videosLoaded, setVideosLoaded] = useState(false)
   const [form, setForm] = useState(null)   // null | 'new' | video
   const [deleteTarget, setDeleteTarget] = useState(null)
 
   useEffect(() => {
     let cancelled = false
     client.get(`${basePath}/videos`).then(({ data }) => {
-      if (!cancelled) setVideos(data)
+      if (!cancelled) { setVideos(data); setVideosLoaded(true) }
     }).catch(() => {})
     return () => { cancelled = true }
   }, [basePath])
+
+  useEffect(() => {
+    if (videosLoaded) onCount?.(videos.length)
+  }, [videos.length, videosLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function saved(v) {
     setVideos(prev => {

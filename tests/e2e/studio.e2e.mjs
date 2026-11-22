@@ -181,7 +181,7 @@ try {
   check('player: pronto, durata mostrata', Math.abs((await clock()).dur - 4) < 0.4, JSON.stringify(await clock()))
   const painted = await evaluate(`(() => { const c = document.querySelector('canvas'); const g = c.getContext('2d'); const d = g.getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) { if (d[i] > 150) n++ } return n })()`)
   check('timeline: forma d\'onda disegnata', painted > 100, `${painted} pixel chiari`)
-  check('conteggio/volume/zoom visibili', (await hasText('Conteggio spento')) && (await hasText('×1.0')))
+  check('conteggio/volume/zoom visibili (riepilogo del pannello Ascolto)', (await hasText('conteggio spento')) && (await hasText('×1.0')))
 
   await clickTitle('Play')
   await sleep(900)
@@ -224,7 +224,9 @@ try {
   check('marker: creato e visibile', markers.length === 1 && markers[0].label === 'Nota errata', JSON.stringify(markers.map((m) => m.time_ms)))
   check('marker: bandierina sulla timeline', await evaluate(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === '⚑' && b.title.includes('Nota errata'))`))
 
-  // Commento che cita il marker
+  // Commento che cita il marker (scheda Commenti)
+  await clickText('Commenti')
+  await waitFor(`!!document.querySelector('textarea[placeholder="Scrivi un commento…"]')`, 5000, 'scheda Commenti')
   await clickText('Cita marker')
   await waitFor(`[...document.querySelectorAll('form li button')].some(b => b.textContent.includes('Nota errata'))`)
   await evaluate(`[...document.querySelectorAll('form li button')].find(b => b.textContent.includes('Nota errata')).click()`)
@@ -243,7 +245,8 @@ try {
   check('commento: il link porta il player al marker', Math.abs(afterJump.pos - markers[0].time_ms / 1000) < 0.8, `pos ${afterJump.pos}, marker ${markers[0].time_ms / 1000}`)
   await clickTitle('Pausa')
 
-  // Taglio predefinito
+  // Taglio predefinito (pulsanti nel pannello «Regola loop», chiuso di default)
+  await clickText('Regola loop')
   await clickText('Tutto')
   const setPoint = async (label, frac) => {
     const x = rect.x + rect.w * frac
@@ -285,6 +288,7 @@ try {
   check('timeline: pressione lunga apre il nuovo marker', true)
   await clickText('Annulla')
   await sleep(200)
+  await clickText('Ascolto') // apre il pannello (chiuso di default)
   await clickText('Conteggio spento')
   check('conteggio: attivabile', await hasText('Conteggio attivo'))
   const before = (await clock()).pos
@@ -303,7 +307,7 @@ try {
   await waitFor(`document.body.innerText.includes('Attiva il microfono')`)
   await clickText('Attiva il microfono')
   await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Registra') && !b.disabled && b.className.includes('red'))`, 10000, 'microfono attivo')
-  check('registrazione: microfono finto attivato, limite mostrato', await hasText('Dimensione massima'))
+  check('registrazione: microfono finto attivato, limite mostrato', await hasText('Durata massima'))
   await clickText('Registra')
   await waitFor(`document.body.innerText.includes('Registrazione in corso')`, 8000)
   await sleep(2600)
@@ -375,7 +379,7 @@ try {
 
   // Elenco del progetto
   await go(`/studio/${pid}`)
-  await waitFor(`document.body.innerText.includes('Contenuti (4)')`, 10000, 'quattro contenuti')
+  await waitFor(`document.body.innerText.includes('Contenuti')`, 10000, 'schede del progetto')
   check('progetto: quattro contenuti, sovraincisione etichettata', (await hasText('sopra a «riff»')) || (await hasText('sopra a')))
 
   // S8 controllo BPM: tasti +/−, slider, valore salvato
@@ -414,6 +418,8 @@ try {
   await waitFor(`document.body.innerText.includes('Attiva il microfono')`)
   await clickText('Attiva il microfono')
   await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Registra') && !b.disabled && b.className.includes('red'))`, 10000, 'microfono attivo')
+  check('tempo: a pannello chiuso il riepilogo mostra BPM, conteggio e metronomo', await hasText('101 BPM · conteggio no · metronomo no'))
+  await clickText('Tempo') // pannello richiudibile: senza base è chiuso di default
   check('tempo: pannello visibile anche senza base, BPM del brano', (await hasText('Tempo')) && (await bpmField()) === '101', await bpmField())
   check('tempo: nessun avviso cuffie finché conteggio e metronomo sono spenti', !(await hasText('senza cuffie il microfono registra anche il click')))
   const tick = (label) => evaluate(`(() => { const l = [...document.querySelectorAll('label')].find(e => e.textContent.includes(${q(label)})); const i = l?.querySelector('input'); if (!i) return false; if (!i.checked) i.click(); return i.checked })()`)
@@ -446,8 +452,10 @@ try {
 
   // S10 testo nel brano di prova
   await go(`/studio/${pid}`)
-  await waitFor(`document.body.innerText.includes('Aggiungi testo')`, 10000, 'sezione testo')
-  check('testo: sezioni Testo, Video prove e Commenti nel brano di prova', (await hasText('Video prove')) && (await hasText('Commenti')))
+  await waitFor(`document.body.innerText.includes('Contenuti')`, 10000, 'pagina del brano')
+  check('testo: schede Contenuti, Testo, Video e Commenti nel brano di prova', (await hasText('Testo')) && (await hasText('Video')) && (await hasText('Commenti')))
+  await clickText('Testo')
+  await waitFor(`document.body.innerText.includes('Aggiungi testo')`, 10000, 'scheda Testo')
   await clickText('Aggiungi testo')
   await waitFor(`!!document.querySelector('textarea')`, 10000, 'editor del testo')
   await typeInto('textarea', '[Intro]\n[Am]Parole del pezzo [G]inedito')
@@ -480,9 +488,11 @@ try {
     await clickText('Sposta')
     await waitFor(`location.pathname.includes('/studio/') && !location.pathname.includes('/songs/')`, 15000, 'apertura del brano di prova')
     movedPid = Number(await evaluate(`location.pathname.split('/').pop()`))
+    await waitFor(`document.body.innerText.includes('Audio da portare')`, 10000, 'audio portato (scheda Contenuti)')
+    await clickText('Commenti')
     await waitFor(`document.body.innerText.includes('Commento da portare')`, 10000, 'commento portato')
     const movedProj = (await api('GET', `/studio/projects/${movedPid}`, null, token)).data
-    check('spostamento: il brano di prova ha testo, commento e audio della cover', movedProj.lyrics === '[C]Testo della cover' && movedProj.takes.length === 1 && (await hasText('Audio da portare')), JSON.stringify({ lyrics: movedProj.lyrics, takes: movedProj.takes.length }))
+    check('spostamento: il brano di prova ha testo, commento e audio della cover', movedProj.lyrics === '[C]Testo della cover' && movedProj.takes.length === 1 && movedProj.takes[0].title === 'Audio da portare', JSON.stringify({ lyrics: movedProj.lyrics, takes: movedProj.takes.length }))
     check('spostamento: la cover non esiste più', (await api('GET', `/songs/${sid}`, null, token)).status === 404)
     // La forma d'onda dell'audio spostato si calcola alla prima apertura e si salva sul server
     const movedTake = movedProj.takes[0]
@@ -532,6 +542,98 @@ try {
   const afterSwap = (await clock()).pos
   check('audio grande: dopo il cambio di motore riparte dalla stessa posizione e avanza', afterSwap > bigPos + 0.5 && afterSwap < bigPos + 6, `prima ${bigPos}, dopo ${afterSwap}`)
   await clickTitle('Pausa')
+
+  // S13 mobile: nessuno scorrimento orizzontale, swipe tra le sezioni, nome del gruppo in testata, guida interattiva
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 780, deviceScaleFactor: 2, mobile: true })
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true })
+  const noHScroll = () => evaluate(`document.documentElement.scrollWidth <= document.documentElement.clientWidth`)
+  for (const route of ['/', '/studio', `/studio/${pid}`, `/studio/${pid}/takes/${tid}`, `/studio/${pid}/record`, '/profile']) {
+    await go(route)
+    await sleep(1200)
+    check(`mobile 360 px: nessuno scorrimento orizzontale in ${route}`, await noHScroll())
+  }
+  check('mobile: i filtri delle Prove stanno nello schermo (3 segmenti, nessuna area a scorrimento)',
+    await (async () => { await go('/studio'); await sleep(800); return evaluate(`!!document.querySelector('[data-segment=inCorso]') && !!document.querySelector('[data-segment=archivio]') && document.documentElement.scrollWidth <= 360`) })())
+  check('mobile: la barra in basso non c\'è nel player e in registrazione, e non mostra più la versione', await (async () => {
+    await go(`/studio/${pid}/takes/${tid}`); await sleep(800)
+    const inPlayer = await evaluate(`!document.querySelector('nav.fixed')`)
+    await go('/studio'); await sleep(800)
+    const noVersion = await evaluate(`!document.querySelector('nav.fixed').innerText.match(/v\\d+\\.\\d+/)`)
+    return inPlayer && noVersion
+  })())
+
+  // nome del gruppo in testata
+  const originalName = (await api('GET', '/admin/settings', null, token)).data.find((x) => x.key === 'band_name')?.value ?? ''
+  const swipeSongs = []
+  try {
+    await api('PUT', '/admin/settings', { key: 'band_name', value: 'E2E Gruppo' }, token)
+    await go('/')
+    await waitFor(`document.querySelector('[data-testid=band-name]')?.textContent === 'E2E Gruppo'`, 8000, 'nome del gruppo in testata')
+    check('gruppo: il nome impostato in Admin compare in testata e nel titolo della scheda', (await evaluate(`document.title`)).startsWith('E2E Gruppo'), await evaluate(`document.title`))
+    await go('/studio')
+    check('gruppo: compare anche nelle Prove', await evaluate(`document.querySelector('[data-testid=band-name]')?.textContent === 'E2E Gruppo'`))
+
+    // guida: stato pulito, benvenuto al primo accesso
+    await evaluate(`localStorage.removeItem('band_onboarding_' + JSON.parse(localStorage.band_user).id); localStorage.removeItem('band_onboarding_ctx_' + JSON.parse(localStorage.band_user).id)`)
+    for (const [n, cat] of [['A', 'proposta'], ['B', 'da_provare']]) {
+      const r = await api('POST', '/songs', { artist: 'E2E Swipe', title: `Brano ${n} ${Date.now()}`, category: cat, force: true, message: 'e2e' }, token)
+      swipeSongs.push(r.data.id)
+    }
+    await go('/')
+    await waitFor(`!!document.querySelector('[data-testid=welcome-card]')`, 8000, 'benvenuto')
+    check('guida: al primo accesso compare il benvenuto con Inizia/Salta', await evaluate(`!!document.querySelector('[data-testid=welcome-start]') && !!document.querySelector('[data-testid=welcome-skip]')`))
+    check('guida: pallino sul "?" finché non è completata', await evaluate(`!!document.querySelector('[data-testid=help-badge]')`))
+    await evaluate(`document.querySelector('[data-testid=welcome-skip]').click()`)
+    await sleep(400)
+    check('guida: «Salta» chiude il benvenuto e toglie il pallino', await evaluate(`!document.querySelector('[data-testid=welcome-card]') && !document.querySelector('[data-testid=help-badge]')`))
+    await go('/')
+    check('guida: dopo «Salta» il benvenuto non ricompare', await evaluate(`!document.querySelector('[data-testid=welcome-card]')`))
+
+    // swipe: dito verso sinistra = sezione successiva
+    const activeTab = () => evaluate(`document.querySelector('[role=tab][aria-selected=true]')?.dataset.tab`)
+    const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }] })
+    const swipe = async (x1, y1, x2, y2) => {
+      await touch('touchStart', x1, y1)
+      for (let i = 1; i <= 10; i++) { await sleep(20); await touch('touchMove', x1 + ((x2 - x1) * i) / 10, y1 + ((y2 - y1) * i) / 10) }
+      await touch('touchEnd')
+      await sleep(700)
+    }
+    await evaluate(`sessionStorage.setItem('band_category', 'proposta')`)
+    await go('/')
+    await waitFor(`document.querySelector('[role=tab][aria-selected=true]')?.dataset.tab === 'proposta'`, 5000, 'sezione Proposta')
+    await swipe(300, 400, 80, 400)
+    check('swipe: dito verso sinistra → sezione successiva (Proposta → Da Provare)', (await activeTab()) === 'da_provare', await activeTab())
+    await swipe(80, 400, 300, 400)
+    check('swipe: dito verso destra → sezione precedente (Da Provare → Proposta)', (await activeTab()) === 'proposta', await activeTab())
+    await swipe(80, 400, 300, 400)
+    check('swipe: oltre la prima sezione non cambia (niente giro circolare)', (await activeTab()) === 'proposta', await activeTab())
+    await swipe(300, 500, 300, 250)
+    check('swipe: un gesto verticale non cambia sezione', (await activeTab()) === 'proposta', await activeTab())
+    await swipe(8, 400, 220, 400)
+    check('swipe: un gesto che parte dal bordo dello schermo è ignorato', (await activeTab()) === 'proposta', await activeTab())
+    check('swipe: il passo della guida si spunta da solo', await evaluate(`!!JSON.parse(localStorage.getItem('band_onboarding_' + JSON.parse(localStorage.band_user).id)).done.swipe`))
+    await evaluate(`document.querySelector('[data-testid=help-button]').click()`)
+    await waitFor(`!!document.querySelector('[data-testid=guide-panel]')`, 4000, 'pannello guida')
+    check('guida: il pannello mostra 1/12 dopo lo swipe', (await evaluate(`document.querySelector('[data-testid=guide-progress]').innerText`)).trim() === '1/12')
+
+    // completamento: tutti gli altri passi
+    await evaluate(`['propose','move','like','prompter','project','take','loop','marker','comment','overdub','status'].forEach(id => window.dispatchEvent(new CustomEvent('band:onboarding', { detail: { step: id } })))`)
+    await waitFor(`!!document.querySelector('[data-testid=guide-complete]')`, 4000, 'messaggio di completamento')
+    check('guida: completati tutti i passi compare il messaggio di fine', (await evaluate(`document.querySelector('[data-testid=guide-progress]').innerText`)).trim() === '12/12')
+    await evaluate(`document.querySelector('[data-testid=guide-close]').click()`)
+    await sleep(300)
+    check('guida: a guida completata il pallino sparisce', await evaluate(`!document.querySelector('[data-testid=help-badge]')`))
+    await evaluate(`document.querySelector('[data-testid=help-button]').click()`)
+    await waitFor(`!!document.querySelector('[data-testid=guide-restart]')`, 4000)
+    await evaluate(`document.querySelector('[data-testid=guide-restart]').click()`)
+    await sleep(300)
+    check('guida: «Ricomincia» azzera i passi', (await evaluate(`document.querySelector('[data-testid=guide-progress]').innerText`)).trim() === '0/12')
+  } finally {
+    await api('PUT', '/admin/settings', { key: 'band_name', value: originalName }, token)
+    for (const id of swipeSongs) await api('DELETE', `/songs/${id}`, null, token)
+    await evaluate(`localStorage.removeItem('band_onboarding_' + JSON.parse(localStorage.band_user).id)`)
+    await cdp.send('Emulation.clearDeviceMetricsOverride')
+  }
 } catch (err) {
   check('ESECUZIONE', false, err.message)
 } finally {

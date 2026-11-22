@@ -3,7 +3,10 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Circle, Headphones, Loader2, Mic, Square, Upload, Video as VideoIcon } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import BottomNav from '../components/BottomNav'
+import ActionBar from '../components/ui/ActionBar'
+import Collapsible from '../components/ui/Collapsible'
+import { summarizeTempo } from '../lib/uiSummary'
+import { trackStep } from '../lib/onboarding'
 import ConfirmDialog from '../components/ConfirmDialog'
 import BpmControl from '../components/studio/BpmControl'
 import Timeline from '../components/studio/Timeline'
@@ -387,6 +390,8 @@ export default function StudioRecord() {
         }
       }
       phaseRef.current = 'setup' // niente più avviso di uscita
+      trackStep('take')
+      if (base) trackStep('overdub')
       navigate(`/studio/${pid}/takes/${data.id}`, { replace: true, state: { justUploaded: true } })
     } catch (err) {
       if (err?.code !== 'ERR_CANCELED') setError(errorText(err, 'Upload non riuscito, riprova'))
@@ -416,8 +421,8 @@ export default function StudioRecord() {
   const canStart = supported && !!stream && (!overId || !!baseBuffer)
 
   return (
-    <div className="min-h-screen pb-24">
-      <header className="flex items-center gap-3 px-4 py-3 bg-gray-950 border-b border-gray-800 sticky top-0 z-10">
+    <div className={`min-h-screen ${phase === 'setup' || phase === 'recording' ? 'pb-32' : 'pb-8'}`}>
+      <header className="flex items-center gap-3 px-4 py-3 bg-gray-950 border-b border-gray-800 sticky top-0 z-20">
         <button onClick={leave} className="p-1 text-gray-400 hover:text-gray-200"><ArrowLeft className="w-6 h-6" /></button>
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-semibold text-white truncate">{overId ? 'Registra sopra' : 'Registra'}</h1>
@@ -514,8 +519,12 @@ export default function StudioRecord() {
               </div>
             )}
 
-            <div className="p-3 rounded-xl bg-gray-900 border border-gray-800 space-y-3">
-              <p className="text-sm text-white">Tempo</p>
+            <Collapsible
+              title="Tempo"
+              storageKey="studio_ui_tempo_open"
+              defaultOpen={!!overId}
+              summary={summarizeTempo({ bpm, countIn: countIn.enabled, metronome: countIn.metronome })}
+            >
               <BpmControl value={bpm} onChange={changeBpm} />
               {project && !canManage && (
                 <p className="text-[11px] text-gray-500">Il BPM vale solo per questa registrazione: solo chi ha creato il brano può cambiarlo nel brano.</p>
@@ -561,21 +570,19 @@ export default function StudioRecord() {
                   Usa le cuffie: senza cuffie il microfono registra anche il click.
                 </p>
               )}
-            </div>
+            </Collapsible>
 
-            <div className="space-y-2">
+            {limitSec && (
+              <p className="text-[11px] text-gray-500">Durata massima circa {Math.floor(limitSec / 60)} min {limitSec % 60} s.</p>
+            )}
+            <Collapsible title="Info sul file" storageKey="studio_ui_info_open">
               <SizeTips maxBytes={maxBytes} />
               {limitSec && (
                 <p className="text-[11px] text-gray-500">
                   Con questa qualità la registrazione può durare circa {Math.floor(limitSec / 60)} min {limitSec % 60} s prima del limite di dimensione.
                 </p>
               )}
-            </div>
-
-            <button type="button" onClick={startRecording} disabled={!canStart}
-                    className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-semibold flex items-center justify-center gap-2">
-              <Circle className="w-5 h-5 fill-current" /> Registra
-            </button>
+            </Collapsible>
           </>
         )}
 
@@ -593,10 +600,6 @@ export default function StudioRecord() {
               <div className="h-full transition-[width] duration-75" style={{ width: `${levelPercent(level.rms) * 100}%`, background: level.peak > 0.98 ? '#ef4444' : '#22c55e' }} />
             </div>
             {warn && <p className="text-sm text-amber-300 text-center">{warn}</p>}
-            <button type="button" onClick={() => stopRecording()}
-                    className="w-full py-4 rounded-2xl bg-gray-800 hover:bg-gray-700 text-white font-semibold flex items-center justify-center gap-2">
-              <Square className="w-5 h-5 fill-current" /> Ferma
-            </button>
           </div>
         )}
 
@@ -655,7 +658,22 @@ export default function StudioRecord() {
           onCancel={() => setConfirmLeave(false)}
         />
       )}
-      <BottomNav />
+      {phase === 'setup' && supported && (
+        <ActionBar>
+          <button type="button" onClick={startRecording} disabled={!canStart}
+                  className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-semibold flex items-center justify-center gap-2">
+            <Circle className="w-5 h-5 fill-current" /> Registra
+          </button>
+        </ActionBar>
+      )}
+      {phase === 'recording' && (
+        <ActionBar>
+          <button type="button" onClick={() => stopRecording()}
+                  className="w-full py-4 rounded-2xl bg-gray-800 hover:bg-gray-700 text-white font-semibold flex items-center justify-center gap-2">
+            <Square className="w-5 h-5 fill-current" /> Ferma
+          </button>
+        </ActionBar>
+      )}
     </div>
   )
 }

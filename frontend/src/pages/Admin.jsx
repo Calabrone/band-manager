@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import QRCode from 'qrcode'
-import { ArrowLeft, Copy, Plus, Save, Share2, Trash2, Eye, EyeOff, KeyRound, X } from 'lucide-react'
+import { Copy, Plus, Save, Share2, Trash2, Eye, EyeOff, KeyRound, X } from 'lucide-react'
 import client from '../api/client'
 import ConfirmDialog from '../components/ConfirmDialog'
+import AppHeader from '../components/ui/AppHeader'
+import { useConfig } from '../context/ConfigContext'
 
 function ResetPasswordModal({ user, onClose }) {
   const [newPassword, setNewPassword] = useState('')
@@ -377,6 +379,7 @@ function SettingField({ label, hint, settingKey, initialMasked }) {
 
 /** Impostazione non segreta: il valore attuale è in chiaro e si può modificare (o svuotare). */
 function PlainSettingField({ label, hint, settingKey, initialValue, placeholder }) {
+  const { refreshConfig } = useConfig()
   const [value, setValue] = useState(initialValue ?? '')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -389,6 +392,8 @@ function PlainSettingField({ label, hint, settingKey, initialValue, placeholder 
     setSaving(true)
     try {
       await client.put('/admin/settings', { key: settingKey, value })
+      // il nome del gruppo compare in testata: aggiornarlo subito
+      if (settingKey === 'band_name') await refreshConfig()
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } finally {
@@ -481,7 +486,7 @@ function SettingsTab() {
       {settings.length > 0 && (
         <PlainSettingField
           label="Nome della band"
-          hint="Precompila l'artista quando un brano di prova viene promosso nella lista dei brani."
+          hint="Compare in testata alle pagine dell'app e precompila l'artista quando un brano di prova viene promosso."
           settingKey="band_name"
           initialValue={plain.band_name}
           placeholder="es. I Miei Amici"
@@ -519,12 +524,7 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen pb-8">
-      <header className="flex items-center gap-3 px-4 py-3 bg-gray-950 border-b border-gray-800 sticky top-0 z-10">
-        <button onClick={() => navigate(-1)} className="p-1 text-gray-400 hover:text-gray-200">
-          <ArrowLeft className="w-6 h-6" />
-        </button>
-        <h1 className="text-base font-semibold text-white">Admin</h1>
-      </header>
+      <AppHeader title="Admin" sticky onBack={() => navigate(-1)} />
 
       <div className="flex border-b border-gray-800">
         {['users', 'settings'].map((t) => (

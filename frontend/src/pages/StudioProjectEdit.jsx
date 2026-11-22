@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import client from '../api/client'
+import { trackStep } from '../lib/onboarding'
 import BottomNav from '../components/BottomNav'
 import BpmControl from '../components/studio/BpmControl'
 import { Field, btnPrimary, errorText, inputCls } from '../components/studio/ui'
@@ -40,6 +41,7 @@ export default function StudioProjectEdit() {
     }
     try {
       const { data } = editing ? await client.put(`/studio/projects/${pid}`, body) : await client.post('/studio/projects', body)
+      if (!editing) trackStep('project')
       navigate(`/studio/${data.id}`, { replace: true })
     } catch (err) {
       setError(errorText(err, 'Salvataggio non riuscito'))
