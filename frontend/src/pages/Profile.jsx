@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronRight, LogOut, Palette } from 'lucide-react'
+import { BellRing, ChevronRight, LogOut, Palette } from 'lucide-react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import AppHeader from '../components/ui/AppHeader'
@@ -123,7 +123,7 @@ export default function Profile() {
 
   return (
     <div className="min-h-screen pb-24">
-      <AppHeader title="Profilo" sticky onBack={forced ? undefined : () => navigate(-1)} actions={forced ? undefined : <HelpButton />} />
+      <AppHeader title="Profilo" sticky bell={!forced} onBack={forced ? undefined : () => navigate(-1)} actions={forced ? undefined : <HelpButton />} />
 
       <div className="p-4 space-y-6">
         {forced && (
@@ -149,6 +149,21 @@ export default function Profile() {
             <span className="flex-1 min-w-0">
               <span className="block text-white font-medium">Aspetto</span>
               <span className="block text-gray-500 text-sm truncate">{themeName}{customized ? ', personalizzato' : ''}</span>
+            </span>
+            <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
+          </button>
+        )}
+
+        {!forced && (
+          <button
+            onClick={() => navigate('/profile/notifications')}
+            data-testid="open-notifications"
+            className="flex items-center gap-3 w-full rounded-xl bg-gray-900 border border-gray-800 px-4 py-3 text-left hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+          >
+            <BellRing className="w-5 h-5 text-brand-400 flex-shrink-0" />
+            <span className="flex-1 min-w-0">
+              <span className="block text-white font-medium">Notifiche</span>
+              <span className="block text-gray-500 text-sm truncate">Push sul dispositivo e cosa notificare</span>
             </span>
             <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
           </button>
@@ -201,7 +216,7 @@ export default function Profile() {
 
         {/* Logout */}
         <button
-          onClick={() => { logout(); navigate('/login') }}
+          onClick={async () => { await logout(); navigate('/login') }}
           className="flex items-center gap-2 w-full px-4 py-3 rounded-xl border border-red-800 text-red-400 hover:bg-red-950 text-sm font-medium"
         >
           <LogOut className="w-4 h-4" />

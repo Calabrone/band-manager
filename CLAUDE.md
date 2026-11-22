@@ -42,7 +42,7 @@ bash deploy/backup_db_aruba.sh band               # scarica il DB in backups/ (f
 bash deploy/deploy_aruba.sh band-test --api
 ```
 
-Il deploy non tocca mai `api/config.php` né `api/data/*` (tranne `data/.htaccess`). Build con base diversa: `export MSYS2_ENV_CONV_EXCL=VITE_BASE; VITE_BASE=/ npm run build` (Git Bash converte altrimenti `/` in un percorso Windows).
+Il deploy non tocca mai `api/config.php` né `api/data/*` (tranne `data/.htaccess`). Il frontend di `band-test` va compilato con la sua base: `export MSYS2_ENV_CONV_EXCL=VITE_BASE; VITE_BASE=/band-test/ bash deploy/deploy_aruba.sh band-test --frontend` (senza, gli asset puntano a `/band/`). Build con base diversa: `export MSYS2_ENV_CONV_EXCL=VITE_BASE; VITE_BASE=/ npm run build` (Git Bash converte altrimenti `/` in un percorso Windows).
 
 ### Prova locale con Docker (obbligatoria prima di commit, push e deploy)
 
@@ -72,6 +72,10 @@ ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/studio.e2e
 ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/theme.e2e.mjs
 # End-to-end dei link condivisi (login con ritorno, focus, istante/loop, schede, appunti)
 ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/share.e2e.mjs
+# End-to-end delle notifiche (campanella, storico, preferenze, avviso iPhone)
+ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/notifications.e2e.mjs
+# Crittografia Web Push (nel container di deploy/local)
+docker exec -i local-web-1 php < tests/php/push_crypto_test.php
 # Frontend: controlla base path in index.html, manifest, service worker
 bash tests/frontend/check_base.sh /band/
 ```
@@ -200,6 +204,16 @@ PUT/DELETE /api/studio/projects/{pid}/videos/{vid} → solo chi l'ha inserito
 PUT  /api/studio/takes/{tid}/analysis    → { peaks:[0-255], duration_ms } salva la forma d'onda calcolata dal browser; una tantum (non sovrascrive), chiunque; lo fa `usePlayback` alla prima apertura di un contenuto senza picchi (es. audio spostato da una cover)
 POST /api/songs/{id}/to-studio          → { project_id } sposta una cover nelle Prove (solo chi l'ha proposta o admin)
 
+GET  /api/notifications?offset=&limit=  → { items:[{id, kind, url, title, text, excerpt, actors, count, created_at, updated_at, read}], unread, has_more } (per updated_at)
+GET  /api/notifications/unread          → { unread }
+POST /api/notifications/read            → { ids:[…] } oppure { all:true } → { unread }
+PUT  /api/auth/notify-prefs             → { song?: all|off, like?/comment?/media?: all|mine|off } → { notify_prefs }; userOut espone notify_prefs
+GET  /api/push/key                      → { public_key } chiave VAPID (generata alla prima richiesta)
+POST /api/push/subscriptions            → { endpoint, keys:{p256dh, auth} } upsert per endpoint (passa all'utente attuale); solo servizi push noti
+DELETE /api/push/subscriptions          → { endpoint } (solo le proprie)
+POST /api/push/test                     → push di prova ai propri dispositivi (409 senza dispositivi, 429 entro 10 s)
+GET  /api/admin/push/capture            → solo con push_capture: restituisce e svuota le push "inviate"
+
 GET  /api/admin/users
 PUT  /api/admin/users/{id}/password     → admin resets any user's password
 POST /api/admin/users/{id}/reset-link   → { url, expires_at } link di reset (1 h) da mandare in chat
@@ -251,6 +265,10 @@ Ogni utente sceglie un tema (Profilo → Aspetto) e lo personalizza; vale per tu
 
 Ogni contenuto ha un'azione «Condividi» (icona `Share2`): pannello nativo (`navigator.share`) → appunti con toast «Link copiato» → dialog con il link da copiare a mano. I link valgono solo per i membri (nessun accesso pubblico, nessuna modifica al backend). **Formato** (URL assoluto da `location.origin + BASE_URL`): `/?cat=<categoria>`, `/studio?seg=inCorso|promossi|archivio`, `/songs/:id[?focus=lyrics|media|comments|audio-<id>|video-<id>|comment-<id>]`, `/studio/:pid[?tab=contenuti|testo|video|commenti | ?focus=take-<id>|video-<id>|comment-<id>]`, `/studio/:pid/takes/:tid[?t=<ms> | ?a=<ms>&b=<ms> | ?focus=marker-<id>|comment-<id>]`. **Moduli:** `lib/share.js` (puro e testato: `buildSharePath`, `shareUrl`, `parseFocus`, `parseTime`, `parseLoop`, `pickKey`, `safeNext`, `shareText`), `lib/useShare.js`, `lib/useDeepLink.js` (`useDeepLink` legge i parametri una volta al montaggio; `consume()` toglie `focus/t/a/b` con `replace`; `useViewParam` toglie `cat/seg/tab` dopo l'apertura, perché da lì vale la scelta in `sessionStorage`; `useFocusTarget` scorre fino a `[data-share-id="<kind>-<id>"]`, aggiunge la classe `share-flash` per 2 s, oppure mostra «Elemento non più disponibile»), `context/ToastContext.jsx` (`showToast`, `showLink`), `components/ShareButton.jsx` (`ShareButton` icona, `ShareAction` voce testuale). Nuovi elementi condivisibili: aggiungere `data-share-id` e attendere che i dati siano caricati prima di `useFocusTarget` (`onCount` di `VideoSection`/`CommentSection`, `onLoaded` di `SongMedia`). **Player:** `LoopPlayer` accetta `initial={ time | loop }` (applicato quando il motore è pronto, limitato alla durata; un istante fuori dal taglio dell'autore disattiva il loop), espone `getLoop()` e `onLoopChange`; attributi `data-status`, `data-loop`, `data-testid=player-time` per i test. **Login con ritorno:** `ProtectedRoute` e l'interceptor 401 mandano a `/login?next=<percorso>`; `Login` accetta solo `safeNext` (percorso interno, niente `//`, schemi o `/login`). Test: `node --test tests/frontend/share.test.mjs`, `ADMIN_PASSWORD=... E2E_SITE=http://localhost:8080/band node tests/e2e/share.e2e.mjs`.
 
+#### Notifiche push e storico (solo PHP/Aruba; spec `.kiro/specs/push-notifications/`)
+
+Schema v9 (`PRAGMA user_version=9`): `push_subscription` (endpoint unico, chiavi del browser, `fail_count`), `notification` (per destinatario: `kind` song_new|project_new|promoted|like|comment|media, `target_type`/`target_id`, `group_key`, `actors` JSON, `count`, `title` snapshot, `excerpt`, `url` route frontend, `read_at`, `pushed_at`), `user.notify_prefs`. **Eventi** (solo questi): nuovo brano, nuovo brano di prova, promozione, like, commenti (brano, brano di prova, take), video, audio, take; chi agisce non riceve nulla. `Notify::event(kind, targetType, targetId, actor, {title, url, owners, excerpt})` va chiamato **dopo** il salvataggio (e fuori da altre transazioni: apre la sua); non fa mai fallire l'azione. **Raggruppamento:** stesso `group_key` non letto e aggiornato da < 30 min (`GROUP_WINDOW`) → si fonde (attori, `count`, url all'elemento più recente); `promoted` mai; un like tolto esce dal gruppo (`retractLike`); al massimo una push ogni 3 min per gruppo (`PUSH_INTERVAL`), la push ha `tag` = `group_key` (sostituisce la precedente sul dispositivo, `renotify` solo per gruppi nuovi). Testi solo in `Notify::text()` (titolo tra «», il frontend lo evidenzia con `splitTitle`). `Notify::forget` nei delete di brano/progetto/take e in `moveSong`; `forgetUser` in `adminDeleteUser`; `purge` giornaliera (lette > 30 gg, tutte > 90 gg). Preferenze `all|mine|off` («mine» = proponente/creatore, autore del take, autore del commento a cui si risponde). **`Push.php`:** Web Push senza librerie: VAPID ES256 (chiave in `appsetting` `vapid_public`/`vapid_private` come scalare d, nascoste e non modificabili da Admin → Impostazioni), cifratura RFC 8291 `aes128gcm` con `openssl_pkey_derive` + `hash_hkdf`; allowlist host (FCM, Mozilla, Apple, Windows) solo https; invio con `curl_multi` nello shutdown. Su Aruba (`cgi-fcgi`) non c'è `fastcgi_finish_request`: `Http::send`, se ci sono push in coda, chiude la risposta con `Content-Length` + `Connection: close` + `flush()`; 404/410 eliminano la sottoscrizione, 5 errori di fila pure. **Modalità cattura** (`'push_capture' => true` in `config.php`: Docker locale e band-test, mai produzione): niente rete, le push vanno in `data/push_capture.jsonl`, lette da `GET /admin/push/capture`; host fittizio `push.test.invalid` (path con `/gone` → 410). **Frontend:** `public/push-sw.js` importato dal SW generato (`workbox.importScripts`; usa `registration.scope`, non conosce BASE): `push` → notifica (icona `icon-192.png`, badge monocromatico `badge-96.png`), `setAppBadge`, messaggio `band:notify` ai client; `notificationclick` → `band:open` alla finestra aperta (navigazione interna) o `openWindow(url?n=<id>)`. `lib/push.js` (`pushSupport`: ok/ios-install/denied/unsupported; `enablePush` solo da gesto dell'utente, `disablePush`, `syncPush` all'avvio), `lib/timeAgo.js`, `context/NotificationContext.jsx` (conteggio: avvio, primo piano, 60 s a pagina visibile, push; `?n=` → letta), `components/NotificationBell.jsx` (in `AppHeader`, prop `bell={false}` per toglierla), pagine `/notifications` e `/profile/notifications`. Il logout chiama `disablePush` prima di togliere il token. iPhone: push solo con la PWA nella schermata Home (iOS ≥ 16.4). Test: `docker exec -i local-web-1 php < tests/php/push_crypto_test.php` (vettori RFC 8291, ES256, allowlist), `tests/api/test_notifications.py` (le parti push richiedono `push_capture`), `node --test tests/frontend/push.test.mjs`, `tests/e2e/notifications.e2e.mjs` (l'attivazione push in Chrome headless di solito resta senza risposta: segnata SKIP).
+
 #### API key storage
 
 `groq_api_key` and `genius_api_key` are **not** in `.env` — they live in `AppSetting` and are set via the Admin UI. Read at runtime with `get_setting(session, key)`. `.env` holds only `SECRET_KEY`.
@@ -290,6 +308,8 @@ Frontend polls `GET /api/songs/{id}` every 2 s until `validated = True`.
 | `/admin` | `Admin.jsx` | admin only |
 | `/profile` | `Profile.jsx` | all |
 | `/profile/appearance` | `Appearance.jsx` (temi) | all |
+| `/profile/notifications` | `NotificationSettings.jsx` | all |
+| `/notifications` | `Notifications.jsx` (storico) | all |
 
 #### PWA
 

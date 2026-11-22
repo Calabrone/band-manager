@@ -20,6 +20,9 @@ import StudioRecord from './pages/StudioRecord'
 import Admin from './pages/Admin'
 import Profile from './pages/Profile'
 import Appearance from './pages/Appearance'
+import Notifications from './pages/Notifications'
+import NotificationSettings from './pages/NotificationSettings'
+import { NotificationProvider } from './context/NotificationContext'
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, isAdmin } = useAuth()
@@ -60,6 +63,8 @@ function AppRoutes() {
       <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       <Route path="/profile/appearance" element={<ProtectedRoute><Appearance /></ProtectedRoute>} />
+      <Route path="/profile/notifications" element={<ProtectedRoute><NotificationSettings /></ProtectedRoute>} />
+      <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
@@ -71,9 +76,11 @@ export default function App() {
       <ThemeProvider>
         <ConfigProvider>
           <ToastProvider>
-            <OnboardingProvider>
-              <AppRoutes />
-            </OnboardingProvider>
+            <NotificationProvider>
+              <OnboardingProvider>
+                <AppRoutes />
+              </OnboardingProvider>
+            </NotificationProvider>
           </ToastProvider>
         </ConfigProvider>
       </ThemeProvider>

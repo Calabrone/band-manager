@@ -268,6 +268,7 @@ final class Studio
              VALUES (?, ?, 'idea', ?, ?, ?, ?, ?, ?)",
             [$title, $desc, $bpm, $key, $user['id'], $now, $now, $now]
         );
+        Notify::event('project_new', 'project', $id, $user, ['title' => $title, 'url' => "/studio/$id"]);
         Http::send(self::projectOut(self::project($id)), 201);
     }
 
@@ -356,6 +357,7 @@ final class Studio
             $pdo->exec('ROLLBACK');
             throw $e;
         }
+        Notify::event('promoted', 'song', $songId, $user, ['title' => $title, 'url' => "/songs/$songId"]);
         Http::send(['song_id' => $songId], 201);
     }
 
@@ -366,6 +368,7 @@ final class Studio
         if ($pr['song_id'] !== null && Db::one('SELECT id FROM song WHERE id = ?', [(int)$pr['song_id']]) !== null) {
             Http::fail(409, 'Il brano è stato promosso: elimina prima il brano nella lista principale');
         }
+        Notify::forget('project', (int)$pr['id']);
         foreach (Db::all('SELECT * FROM studio_take WHERE project_id = ?', [$pr['id']]) as $t) {
             self::removeTake($t);
         }
@@ -525,6 +528,10 @@ final class Studio
             throw $e;
         }
         self::touch((int)$pr['id']);
+        Notify::event('media', 'project', (int)$pr['id'], $user, [
+            'title' => $pr['title'], 'url' => "/studio/{$pr['id']}?focus=take-$id", 'excerpt' => 'take',
+            'owners' => [(int)$pr['created_by_id']],
+        ]);
         Http::send(self::takeOut(self::take($id)), 201);
     }
 
@@ -619,6 +626,7 @@ final class Studio
     {
         $t = self::take($p['tid']);
         self::requireAuthor($t, $user);
+        Notify::forget('take', (int)$t['id']);
         self::removeTake($t);
         self::touch((int)$t['project_id']);
         Http::send(null, 204);
@@ -729,6 +737,12 @@ final class Studio
             [$t['id'], $user['id'], $content, $now, $now]
         );
         self::touch((int)$t['project_id']);
+        $pr = self::project((int)$t['project_id']);
+        Notify::event('comment', 'take', (int)$t['id'], $user, [
+            'title' => $pr['title'] . ' – ' . $t['title'], 'excerpt' => $content,
+            'url' => "/studio/{$pr['id']}/takes/{$t['id']}?focus=comment-$id",
+            'owners' => [(int)$t['user_id'], (int)$pr['created_by_id']],
+        ]);
         Http::send(self::commentOut(Db::one('SELECT * FROM studio_comment WHERE id = ?', [$id])), 201);
     }
 
@@ -816,6 +830,7 @@ final class Studio
         $b = Http::body(['content' => 'string', 'parent_id' => '?int']);
         $pr = self::project($p['pid']);
         $content = self::text($b['content'], self::COMMENT_MAX, 'Il commento', true);
+        $parent = null;
         if ($b['parent_id'] !== null) {
             $parent = Db::one('SELECT * FROM studio_project_comment WHERE id = ?', [$b['parent_id']]);
             if ($parent === null || (int)$parent['project_id'] !== (int)$pr['id']) {
@@ -831,6 +846,10 @@ final class Studio
             [$pr['id'], $user['id'], $content, $b['parent_id'], $now, $now]
         );
         self::touch((int)$pr['id']);
+        Notify::event('comment', 'project', (int)$pr['id'], $user, [
+            'title' => $pr['title'], 'url' => "/studio/{$pr['id']}?focus=comment-$id", 'excerpt' => $content,
+            'owners' => array_filter([(int)$pr['created_by_id'], $parent !== null ? (int)$parent['user_id'] : 0]),
+        ]);
         Http::send(self::projectCommentOut(Db::one('SELECT * FROM studio_project_comment WHERE id = ?', [$id])), 201);
     }
 
@@ -907,6 +926,10 @@ final class Studio
             [$pr['id'], $user['id'], $url, $title, $date, $note, $thumb, $now, $now]
         );
         self::touch((int)$pr['id']);
+        Notify::event('media', 'project', (int)$pr['id'], $user, [
+            'title' => $pr['title'], 'url' => "/studio/{$pr['id']}?focus=video-$id", 'excerpt' => 'video',
+            'owners' => [(int)$pr['created_by_id']],
+        ]);
         Http::send(self::projectVideoOut(Db::one('SELECT * FROM studio_project_video WHERE id = ?', [$id])), 201);
     }
 
@@ -1030,6 +1053,7 @@ final class Studio
             }
             throw $e;
         }
+        Notify::forget('song', $songId);
         Http::send(['project_id' => $pid]);
     }
 }

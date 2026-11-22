@@ -19,6 +19,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Gestione delle notifiche push (eventi push e notificationclick), in public/push-sw.js
+        importScripts: ['push-sw.js'],
         runtimeCaching: [
           {
             // Le chiamate API vanno sempre in rete. Gli stream dei file (audio/video, con Range) restano

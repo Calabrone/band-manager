@@ -94,14 +94,14 @@ final class Db
 
     private static function init(PDO $pdo): void
     {
-        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 8) {
+        if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() >= 9) {
             return;
         }
         $pdo->exec('BEGIN IMMEDIATE');
         try {
             // Un'altra richiesta puo' aver inizializzato mentre aspettavamo il lock.
             $version = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-            if ($version >= 8) {
+            if ($version >= 9) {
                 $pdo->exec('COMMIT');
                 return;
             }
@@ -128,7 +128,8 @@ final class Db
             self::migrateV6($pdo);
             self::migrateV7($pdo);
             self::migrateV8($pdo);
-            $pdo->exec('PRAGMA user_version=8');
+            self::migrateV9($pdo);
+            $pdo->exec('PRAGMA user_version=9');
             $pdo->exec('COMMIT');
         } catch (Throwable $e) {
             $pdo->exec('ROLLBACK');
@@ -298,6 +299,31 @@ final class Db
     {
         try {
             $pdo->exec('ALTER TABLE "user" ADD COLUMN theme TEXT');
+        } catch (Throwable $e) {
+            // colonna gia' presente
+        }
+    }
+
+    /** Notifiche: sottoscrizioni Web Push, storico per utente, preferenze. */
+    private static function migrateV9(PDO $pdo): void
+    {
+        $pdo->exec('CREATE TABLE IF NOT EXISTS push_subscription (
+            id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, endpoint TEXT NOT NULL UNIQUE,
+            p256dh TEXT NOT NULL, auth TEXT NOT NULL, user_agent TEXT, created_at DATETIME NOT NULL,
+            last_ok_at DATETIME, fail_count INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES "user" (id))');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS ix_push_sub_user ON push_subscription (user_id)');
+        $pdo->exec('CREATE TABLE IF NOT EXISTS notification (
+            id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, kind TEXT NOT NULL,
+            target_type TEXT, target_id INTEGER, group_key TEXT NOT NULL, actors TEXT NOT NULL,
+            count INTEGER NOT NULL DEFAULT 1, title TEXT NOT NULL, excerpt TEXT, url TEXT NOT NULL,
+            created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, read_at DATETIME, pushed_at DATETIME,
+            FOREIGN KEY(user_id) REFERENCES "user" (id))');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS ix_notif_user ON notification (user_id, id)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS ix_notif_group ON notification (user_id, group_key, read_at)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS ix_notif_target ON notification (target_type, target_id)');
+        try {
+            $pdo->exec('ALTER TABLE "user" ADD COLUMN notify_prefs TEXT');
         } catch (Throwable $e) {
             // colonna gia' presente
         }

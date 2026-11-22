@@ -1,5 +1,6 @@
 import { createContext, useContext, useState } from 'react'
 import client from '../api/client'
+import { disablePush } from '../lib/push'
 
 const AuthContext = createContext(null)
 
@@ -30,7 +31,10 @@ export function AuthProvider({ children }) {
     applySession(null, nextUser)
   }
 
-  function logout() {
+  // Prima di togliere il token scollega il dispositivo dalle push (un altro utente qui non deve
+  // ricevere le notifiche di questo); al massimo 3 s, poi esce comunque.
+  async function logout() {
+    await Promise.race([disablePush(client), new Promise((r) => setTimeout(r, 3000))])
     localStorage.removeItem('band_token')
     localStorage.removeItem('band_user')
     setUser(null)

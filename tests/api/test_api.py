@@ -11,7 +11,7 @@ from conftest import API, ISO_RE, Api, login, register_user, uniq
 class TestAuth:
     def test_login_ok(self, admin):
         assert admin.token
-        assert set(admin.user) == {"id", "username", "role", "email", "must_change_password", "theme"}
+        assert set(admin.user) == {"id", "username", "role", "email", "must_change_password", "theme", "notify_prefs"}
         assert admin.user["role"] == "admin"
 
     def test_login_wrong_password(self, anon):

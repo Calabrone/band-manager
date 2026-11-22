@@ -92,6 +92,17 @@ final class Routes
             ['DELETE', '#^/studio/projects/(?<pid>\d+)/videos/(?<vid>\d+)$#', 'Studio::deleteProjectVideo', 'user'],
             ['POST', '#^/songs/(?<id>\d+)/to-studio$#', 'Studio::moveSong', 'user'],
 
+            // Notifiche (spec .kiro/specs/push-notifications/)
+            ['GET', '#^/notifications$#', 'Notify::list', 'user'],
+            ['GET', '#^/notifications/unread$#', 'Notify::unread', 'user'],
+            ['POST', '#^/notifications/read$#', 'Notify::markRead', 'user'],
+            ['PUT', '#^/auth/notify-prefs$#', 'Notify::updatePrefs', 'user'],
+            ['GET', '#^/push/key$#', 'Notify::pushKey', 'user'],
+            ['POST', '#^/push/subscriptions$#', 'Notify::subscribe', 'user'],
+            ['DELETE', '#^/push/subscriptions$#', 'Notify::unsubscribe', 'user'],
+            ['POST', '#^/push/test$#', 'Notify::test', 'user'],
+            ['GET', '#^/admin/push/capture$#', 'Notify::capture', 'admin'],
+
             ['GET', '#^/admin/users$#', 'adminListUsers', 'admin'],
             ['PUT', '#^/admin/users/(?<uid>\d+)/password$#', 'adminResetPassword', 'admin'],
             ['POST', '#^/admin/users/(?<uid>\d+)/reset-link$#', 'adminResetLink', 'admin'],
@@ -153,6 +164,7 @@ final class Routes
             'email' => $u['email'],
             'must_change_password' => (bool)(int)$u['must_change_password'],
             'theme' => isset($u['theme']) ? json_decode((string)$u['theme'], true) : null,
+            'notify_prefs' => Notify::prefsOf($u),
         ];
     }
 
@@ -614,6 +626,7 @@ final class Routes
              VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)',
             [trim($b['artist']), trim($b['title']), $category, $error, $unverified, $user['id'], $user['id'], $now, $now]
         );
+        Notify::event('song_new', 'song', $id, $user, ['title' => trim($b['title']), 'url' => "/songs/$id"]);
         Http::send(self::songOut(self::song($id)), 201);
     }
 
@@ -667,6 +680,7 @@ final class Routes
     private static function deleteSong(array $p, array $user): void
     {
         self::song($p['id']);
+        Notify::forget('song', $p['id']);
         Db::exec('DELETE FROM comment WHERE song_id = ?', [$p['id']]);
         Db::exec('DELETE FROM songlike WHERE song_id = ?', [$p['id']]);
         Db::exec('DELETE FROM song_video WHERE song_id = ?', [$p['id']]);
@@ -822,7 +836,8 @@ final class Routes
         if ($content === '') {
             Http::fail(400, 'Il commento non può essere vuoto');
         }
-        self::song($p['id']);
+        $song = self::song($p['id']);
+        $parent = null;
         if ($b['parent_id'] !== null) {
             $parent = Db::one('SELECT * FROM comment WHERE id = ?', [$b['parent_id']]);
             if ($parent === null || (int)$parent['song_id'] !== $p['id']) {
@@ -837,6 +852,10 @@ final class Routes
             'INSERT INTO comment (song_id, user_id, content, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
             [$p['id'], $user['id'], $content, $b['parent_id'], $now, $now]
         );
+        Notify::event('comment', 'song', $p['id'], $user, [
+            'title' => $song['title'], 'url' => "/songs/{$p['id']}?focus=comment-$id", 'excerpt' => $content,
+            'owners' => array_filter([(int)$song['proposed_by_id'], $parent !== null ? (int)$parent['user_id'] : 0]),
+        ]);
         Http::send(self::commentOut(Db::one('SELECT * FROM comment WHERE id = ?', [$id])), 201);
     }
 
@@ -894,12 +913,16 @@ final class Routes
 
     private static function toggleLike(array $p, array $user): void
     {
-        self::song($p['id']);
+        $song = self::song($p['id']);
         $existing = Db::one('SELECT id FROM songlike WHERE song_id = ? AND user_id = ?', [$p['id'], $user['id']]);
         if ($existing !== null) {
             Db::exec('DELETE FROM songlike WHERE id = ?', [$existing['id']]);
+            Notify::retractLike($p['id'], (int)$user['id']);
         } else {
             Db::exec('INSERT INTO songlike (song_id, user_id) VALUES (?, ?)', [$p['id'], $user['id']]);
+            Notify::event('like', 'song', $p['id'], $user, [
+                'title' => $song['title'], 'url' => "/songs/{$p['id']}", 'owners' => [(int)$song['proposed_by_id']],
+            ]);
         }
         Http::send(self::likesOut($p['id'], (int)$user['id'], $existing === null));
     }
@@ -1006,7 +1029,7 @@ final class Routes
 
     private static function createVideo(array $p, array $user): void
     {
-        self::song($p['id']);
+        $song = self::song($p['id']);
         [$url, $title, $date, $note, $thumb] = self::videoCreateFields();
         $now = Db::now();
         $id = Db::insert(
@@ -1014,6 +1037,10 @@ final class Routes
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [$p['id'], $user['id'], $url, $title, $date, $note, $thumb, $now, $now]
         );
+        Notify::event('media', 'song', $p['id'], $user, [
+            'title' => $song['title'], 'url' => "/songs/{$p['id']}?focus=video-$id", 'excerpt' => 'video',
+            'owners' => [(int)$song['proposed_by_id']],
+        ]);
         Http::send(self::videoOut(Db::one('SELECT * FROM song_video WHERE id = ?', [$id])), 201);
     }
 
@@ -1061,7 +1088,7 @@ final class Routes
     {
         ignore_user_abort(true);
         set_time_limit(300);
-        self::song($p['id']);
+        $song = self::song($p['id']);
         $max = Media::maxUploadBytes();
         $tooBig = 'File troppo grande' . ($max > 0 ? ' (max ' . (int)floor($max / 1048576) . ' MB)' : '');
         // post_max_size superato: PHP scarta tutto e lascia $_POST e $_FILES vuoti
@@ -1112,6 +1139,10 @@ final class Routes
             @unlink(Media::audioPath($stored));
             throw $e;
         }
+        Notify::event('media', 'song', $p['id'], $user, [
+            'title' => $song['title'], 'url' => "/songs/{$p['id']}?focus=audio-$id", 'excerpt' => 'audio',
+            'owners' => [(int)$song['proposed_by_id']],
+        ]);
         Http::send(self::audioOut(Db::one('SELECT * FROM song_audio WHERE id = ?', [$id])), 201);
     }
 
@@ -1251,15 +1282,20 @@ final class Routes
             Http::fail(400, "Non puoi eliminare l'ultimo admin");
         }
         Db::exec('DELETE FROM "user" WHERE id = ?', [$p['uid']]);
+        Notify::forgetUser($p['uid']);
         Http::send(null, 204);
     }
 
     /** Impostazioni non segrete: l'Admin ne vede il valore in chiaro. */
     private const PLAIN_SETTINGS = ['band_name'];
 
+    /** Chiavi gestite dal server (Web Push): mai mostrate né modificabili dall'Admin. */
+    private const INTERNAL_SETTINGS = ['vapid_public', 'vapid_private', 'notify_last_purge'];
+
     private static function adminGetSettings(array $p, array $admin): void
     {
-        $rows = Db::all('SELECT "key", value FROM appsetting');
+        $rows = array_values(array_filter(Db::all('SELECT "key", value FROM appsetting'),
+            fn($s) => !in_array($s['key'], self::INTERNAL_SETTINGS, true)));
         Http::send(array_map(fn($s) => ['key' => $s['key'], 'value_masked' => self::maskValue($s['value'])]
             + (in_array($s['key'], self::PLAIN_SETTINGS, true) ? ['value' => $s['value']] : []), $rows));
     }
@@ -1267,6 +1303,9 @@ final class Routes
     private static function adminUpdateSetting(array $p, array $admin): void
     {
         $b = Http::body(['key' => 'string', 'value' => 'string']);
+        if (in_array($b['key'], self::INTERNAL_SETTINGS, true)) {
+            Http::fail(400, 'Impostazione non modificabile');
+        }
         $value = trim($b['value']);
         Db::exec(
             'INSERT INTO appsetting ("key", value) VALUES (?, ?) ON CONFLICT("key") DO UPDATE SET value = excluded.value',

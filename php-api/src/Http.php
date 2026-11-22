@@ -14,9 +14,23 @@ final class Http
     public static function send(mixed $data, int $status = 200): never
     {
         http_response_code($status);
+        $body = '';
         if ($status !== 204) {
             header('Content-Type: application/json; charset=utf-8');
-            echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR);
+            $body = (string)json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR);
+        }
+        if (class_exists('Push', false) && Push::pending()) {
+            // Su Aruba (cgi-fcgi) non c'e' fastcgi_finish_request: si chiude la risposta qui e le push
+            // partono dopo, nello shutdown, senza far aspettare il client.
+            header('Content-Length: ' . strlen($body));
+            header('Connection: close');
+            echo $body;
+            while (ob_get_level() > 0) {
+                ob_end_flush();
+            }
+            flush();
+        } else {
+            echo $body;
         }
         exit;
     }

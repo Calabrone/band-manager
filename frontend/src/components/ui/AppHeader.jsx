@@ -1,12 +1,13 @@
 import { useEffect } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { useConfig } from '../../context/ConfigContext'
+import NotificationBell from '../NotificationBell'
 
 /**
  * Intestazione delle pagine principali: nome del gruppo (riga piccola) e titolo della sezione.
- * Imposta anche il titolo della scheda del browser.
+ * Imposta anche il titolo della scheda del browser. bell=false nasconde la campanella delle notifiche.
  */
-export default function AppHeader({ title, icon: Icon, iconClass = 'text-brand-400', onBack, actions, sticky = false }) {
+export default function AppHeader({ title, icon: Icon, iconClass = 'text-brand-400', onBack, actions, sticky = false, bell = true }) {
   const { bandName } = useConfig()
 
   useEffect(() => {
@@ -31,7 +32,12 @@ export default function AppHeader({ title, icon: Icon, iconClass = 'text-brand-4
           <span className="truncate">{title}</span>
         </h1>
       </div>
-      {actions && <div className="flex items-center gap-1 flex-shrink-0">{actions}</div>}
+      {(actions || bell) && (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {actions}
+          {bell && <NotificationBell />}
+        </div>
+      )}
     </header>
   )
 }
